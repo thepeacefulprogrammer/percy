@@ -1,0 +1,15 @@
+[project]
+name = "percy"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "ventures-agent-framework",
+]
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+ventures-agent-framework = { git = "ssh://git@gitlab.rwdigroup.net/labs/ventures-support/ventures-agent-framework.git" }

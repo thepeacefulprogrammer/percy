@@ -1,0 +1,8 @@
+[project]
+name = "Percy"
+output_dir = "~/local/percy-output"
+
+[azure]
+deployment = "gpt-5.2-codex"
+endpoint = "https://randy-m9brd9os-eastus2.openai.azure.com/"
+summary_deployment = "gpt-4.1-nano"
