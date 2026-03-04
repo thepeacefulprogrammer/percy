@@ -15,7 +15,7 @@ class HandOverAgentUpdate(BaseModel):
 
 
 class HandOver:
-    def __init__(self, output_dir: Path, _compaction_trigger: int = 10):
+    def __init__(self, output_dir: Path, _compaction_trigger: int = 40):
         output_dir.mkdir(parents=True, exist_ok=True)
         self.report: str = ""
         self.compaction_trigger: int = _compaction_trigger
@@ -42,7 +42,7 @@ class HandOver:
         )
 
     async def add_report_update(self, report_update: str):
-        logger.info(f"Received report update: {report_update}")
+        logger.debug(f"Received report update: {report_update}")
         response = await self.report_update_agent.run(
             f"<report_update>{report_update}</report_update><report>{self.report}</report>"
         )
@@ -50,13 +50,13 @@ class HandOver:
         with open(self.report_file, "w") as f:
             f.write(self.report)
 
-        logger.info(f"Report updated and saved in {self.output_dir}")
+        logger.debug(f"Report updated and saved in {self.output_dir}")
 
     async def add_prompt(self, prompt: str):
         await self._update_message_history("USER", prompt)
 
     async def add_response(self, handover_update: HandOverAgentUpdate):
-        logger.info(handover_update)
+        logger.debug(handover_update)
         await self._update_message_history("AGENT", handover_update.message)
         if handover_update.lessons_learned_update:
             await self.add_lessons_learned_update(
@@ -78,10 +78,10 @@ class HandOver:
             response = await self.compact_message_history_agent.run(
                 f"Compact this message history into a summary. Return only the summary.<message_history>{self.message_history}</message_history>"
             )
-            # keep the last 4 messages
-            last_messages = self.message_history[-4:]
+            # keep the last 10 messages
+            last_messages = self.message_history[-10:]
             self.message_history = [
-                f"Previous messages have been removed and replaced with this conversation summary: {response}.",
+                f"# Message History\n\nPrevious messages have been removed and replaced with this conversation summary:\n\n{response}.",
                 *last_messages,
             ]
             total_chars_after_compaction = sum(len(s) for s in self.message_history)
