@@ -4,5 +4,19 @@ output_dir = "~/local/percy-output"
 
 [azure]
 deployment = "gpt-5.2-codex"
-endpoint = "https://randy-m9brd9os-eastus2.openai.azure.com/"
-summary_deployment = "gpt-4.1-nano"
+endpoint = "https://maf-foundry-east-us-2.openai.azure.com"
+
+[models]
+coder = "gpt-5.2-codex"
+orchestrator = "gpt-5-mini"
+planner = "gpt-5-mini"
+summary_deployment = "gpt-5-mini"
+speech_to_text = "gpt-4o-mini-transcribe"
+text_to_speech = "gpt-4o-mini-tts"
+
+[token_limits]
+context_window = 272000
+safety_margin = 5000
+max_prompt_tokens = 125000
+max_history_tokens = 10000
+truncate_strategy = "tail"
