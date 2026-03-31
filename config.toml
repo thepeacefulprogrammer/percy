@@ -3,13 +3,13 @@ name = "Percy"
 output_dir = "~/local/percy-output"
 
 [azure]
-deployment = "gpt-5.2-codex"
+deployment = "gpt-5.4"
 endpoint = "https://maf-foundry-east-us-2.openai.azure.com"
 
 [models]
 coder = "gpt-5.2-codex"
 orchestrator = "gpt-5-mini"
-planner = "gpt-5-mini"
+planner = "gpt-5.4"
 summary_deployment = "gpt-5-mini"
 speech_to_text = "gpt-4o-mini-transcribe"
 text_to_speech = "gpt-4o-mini-tts"

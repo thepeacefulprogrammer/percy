@@ -8,6 +8,38 @@ LOG_PROMPTS_TO_DISK = True  # Set to False to stop writing files
 PROMPT_LOG_DIR = None  # Initialized in initialize()
 
 
+def _extract_dbms_notifications(response) -> str | None:
+    """Return only received DBMS notifications from a response object, if present."""
+    if response is None:
+        return None
+
+    notifications = []
+
+    direct_notifications = getattr(response, "received_notifications", None)
+    if direct_notifications:
+        notifications.extend(direct_notifications)
+
+    nested_response = getattr(response, "response", None)
+    nested_notifications = getattr(nested_response, "received_notifications", None)
+    if nested_notifications:
+        notifications.extend(nested_notifications)
+
+    if not notifications:
+        return None
+
+    lines = []
+    for idx, notification in enumerate(notifications, start=1):
+        if isinstance(notification, dict):
+            level = notification.get("level") or notification.get("severity") or "info"
+            source = notification.get("source") or notification.get("from") or "DBMS"
+            message = notification.get("message") or notification.get("text") or str(notification)
+            lines.append(f"[{idx}] {level.upper()} {source}: {message}")
+        else:
+            lines.append(f"[{idx}] {notification}")
+
+    return "\n".join(lines)
+
+
 def log_prompt(call_id: int, direction: str, agent_name: str, **payload):
     """
     Log an outgoing prompt or incoming response.
@@ -18,9 +50,14 @@ def log_prompt(call_id: int, direction: str, agent_name: str, **payload):
 
     # ── Console output ──
     if DEBUG_PROMPTS:
-        print(f"\n{header}")
-        print(f"🔍 [{timestamp}] CALL #{call_id} {direction} — agent: {agent_name}")
-        print(header)
+        logger = payload.get("logger")
+
+        if logger is None:
+            return
+
+        logger.debug(f"\n{header}")
+        logger.debug(f"🔍 [{timestamp}] CALL #{call_id} {direction} — agent: {agent_name}")
+        logger.debug(header)
 
         if direction == "REQUEST":
             prompt = payload.get("prompt", "")
@@ -28,31 +65,34 @@ def log_prompt(call_id: int, direction: str, agent_name: str, **payload):
             tool_names = payload.get("tool_names", [])
             response_format = payload.get("response_format", None)
 
-            print(f"📏 Prompt length: {len(prompt):,} chars")
-            print(f"📏 Instructions length: {len(instructions):,} chars")
-            print(f"📏 Total context: {len(prompt) + len(instructions):,} chars")
-            print(f"🔧 Tools: {', '.join(tool_names) if tool_names else 'none'}")
-            print(f"📋 Response format: {response_format}")
-            print(f"\n{'─' * 30} INSTRUCTIONS {'─' * 30}")
-            print(instructions[:500] + ("..." if len(instructions) > 500 else ""))
-            print(f"\n{'─' * 30} PROMPT {'─' * 30}")
-            print(prompt[:2000] + ("..." if len(prompt) > 2000 else ""))
-            print(header)
+            logger.debug(f"📏 Prompt length: {len(prompt):,} chars")
+            logger.debug(f"📏 Instructions length: {len(instructions):,} chars")
+            logger.debug(f"📏 Total context: {len(prompt) + len(instructions):,} chars")
+            logger.debug(f"🔧 Tools: {', '.join(tool_names) if tool_names else 'none'}")
+            logger.debug(f"📋 Response format: {response_format}")
+            logger.debug(f"\n{'─' * 30} INSTRUCTIONS {'─' * 30}")
+            logger.debug(instructions[:500] + ("..." if len(instructions) > 500 else ""))
+            logger.debug(f"\n{'─' * 30} PROMPT {'─' * 30}")
+            logger.debug(prompt[:2000] + ("..." if len(prompt) > 2000 else ""))
+            logger.debug(header)
 
         elif direction == "RESPONSE":
             response = payload.get("response", "")
             duration = payload.get("duration_ms", 0)
-            print(f"⏱️  Duration: {duration:,.0f}ms")
-            print(f"📏 Response length: {len(str(response)):,} chars")
-            print(f"\n{'─' * 30} RESPONSE {'─' * 30}")
-            resp_str = str(response)
-            print(resp_str[:1000] + ("..." if len(resp_str) > 1000 else ""))
-            print(header)
+            logger.debug(f"⏱️  Duration: {duration:,.0f}ms")
+            logger.debug(f"📏 Response length: {len(str(response)):,} chars")
+            logger.debug(f"\n{'─' * 30} RESPONSE {'─' * 30}")
+            notification_text = _extract_dbms_notifications(response)
+            if notification_text:
+                logger.debug(notification_text)
+            else:
+                logger.debug("No DBMS notifications received.")
+            logger.debug(header)
 
         elif direction == "ERROR":
             error = payload.get("error", "")
-            print(f"❌ Error: {error}")
-            print(header)
+            logger.debug(f"❌ Error: {error}")
+            logger.debug(header)
 
     # ── Disk output (full, untruncated) ──
     if LOG_PROMPTS_TO_DISK and PROMPT_LOG_DIR is not None:

@@ -1,4 +1,4 @@
-from ventures_agent_framework import HandOver
+from ventures_agent_framework import HandOver, get_todo_store
 
 # ──────────────────────────────────────────────
 # CONTEXT SIZE MANAGEMENT
@@ -30,8 +30,17 @@ def build_handover_prompt(
 
     queue_str = _truncate_section(task_queue_status, queue_budget, "task queue")
 
+    try:
+        todo_store = get_todo_store(handover.output_dir)
+        todo_str = todo_store.format_active()
+    except Exception:
+        todo_str = "(todo store unavailable)"
+
     prompt = f"""# Handover Report
 {report}
+
+# Active TODOs
+{todo_str}
 
 # Task Queue Status
 {queue_str}
