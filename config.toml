@@ -1,0 +1,18 @@
+[project]
+name = "Percy"
+output_dir = "~/local/local_test"
+log_level = "DEBUG"
+
+[azure]
+deployment = "gpt-5.4"
+endpoint = "https://maf-foundry-east-us-2.openai.azure.com"
+
+[token_limits]
+context_window = 272000
+safety_margin = 5000
+max_prompt_tokens = 125000
+max_history_tokens = 10000
+truncate_strategy = "tail"
+
+[memory]
+session_file = "./memory/session_file.pk1"
