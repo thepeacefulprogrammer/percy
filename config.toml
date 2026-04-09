@@ -15,4 +15,4 @@ max_history_tokens = 10000
 truncate_strategy = "tail"
 
 [memory]
-session_file = "./memory/session_file.pk1"
+session_file = "./data/memory/session_file.pk1"
