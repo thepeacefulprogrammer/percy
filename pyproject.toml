@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "rich",
+    "textual>=8.2.3",
     "ventures-agent-framework",
 ]
 
