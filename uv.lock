@@ -479,11 +479,15 @@ name = "percy"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "rich" },
     { name = "ventures-agent-framework" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ventures-agent-framework", directory = "../ventures_agent_framework" }]
+requires-dist = [
+    { name = "rich" },
+    { name = "ventures-agent-framework", directory = "../ventures_agent_framework" },
+]
 
 [[package]]
 name = "pycparser"
