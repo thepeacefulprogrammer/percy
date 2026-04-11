@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -8,12 +9,15 @@ from ventures_agent_framework import config
 
 
 def run() -> None:
+    workdir = Path(os.environ.get("PERCY_WORKDIR", Path.cwd())).expanduser().resolve()
+    config.project.output_dir = workdir
     agent = build_agent()
     memory_file = Path(config.sections["memory"]["session_file"]).expanduser().absolute()
     session = load_persistant_memory(memory_file)
     if session is None:
         session = agent.create_session()
 
+    os.chdir(workdir)
     app = PercyApp(agent, session, memory_file)
     try:
         app.run()
