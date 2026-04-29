@@ -14,4 +14,4 @@ dependencies = [
 prerelease = "allow"
 
 [tool.uv.sources]
-ventures-agent-framework = { path = "../ventures_agent_framework" }
+ventures-agent-framework = { git = "ssh://git@gitlab.rwdigroup.net/labs/ventures-support/ventures-agent-framework.git" }

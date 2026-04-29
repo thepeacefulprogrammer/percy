@@ -17,6 +17,11 @@ truncate_strategy = "tail"
 [memory]
 session_file = "./data/memory/session_file.pk1"
 
+[compaction]
+enabled = "true"
+keep_last_groups = "24"
+keep_last_tool_call_groups = "1"
+
 [pricing]
 # GPT-5 Global Batch API pricing, USD per 1M tokens.
 input_per_million = "0.87"

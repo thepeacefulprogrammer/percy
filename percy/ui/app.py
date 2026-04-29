@@ -6,20 +6,38 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
+from textual.suggester import SuggestFromList
 from textual import work
-from textual.widgets import Input, Static
+from textual.widgets import Input, OptionList, Static
 
 from percy.streaming import content_event_type, get_incremental_text, join_stream_text
 from percy.theme import CATPPUCCIN_MOCHA
+from percy.ui.path_input import PathCompletionInput, PathCompletionMenu
 from percy.ui.renderers import build_stream_renderable, build_user_renderable
-from percy.usage import build_usage_renderable, estimate_cost, update_session_usage_tally
+from percy.usage import (
+    build_usage_renderable,
+    estimate_cost,
+    update_session_usage_tally,
+)
+
+SLASH_COMMAND_SUGGESTIONS = [
+    "/caveman",
+    "/caveman lite",
+    "/caveman full",
+    "/caveman ultra",
+    "/caveman off",
+    "/normal",
+    "/normal mode",
+    "/stop caveman",
+    "/quit",
+]
 
 
 class PercyApp(App[None]):
     CSS = f"""
     Screen {{
-        background: {CATPPUCCIN_MOCHA['base']};
-        color: {CATPPUCCIN_MOCHA['text']};
+        background: {CATPPUCCIN_MOCHA["base"]};
+        color: {CATPPUCCIN_MOCHA["text"]};
     }}
 
     #app-shell {{
@@ -34,15 +52,15 @@ class PercyApp(App[None]):
         padding: 0 1;
         border: none;
         scrollbar-size-vertical: 0;
-        scrollbar-color: {CATPPUCCIN_MOCHA['surface2']} {CATPPUCCIN_MOCHA['mantle']};
-        scrollbar-color-hover: {CATPPUCCIN_MOCHA['overlay0']} {CATPPUCCIN_MOCHA['mantle']};
-        scrollbar-color-active: {CATPPUCCIN_MOCHA['blue']} {CATPPUCCIN_MOCHA['mantle']};
+        scrollbar-color: {CATPPUCCIN_MOCHA["surface2"]} {CATPPUCCIN_MOCHA["mantle"]};
+        scrollbar-color-hover: {CATPPUCCIN_MOCHA["overlay0"]} {CATPPUCCIN_MOCHA["mantle"]};
+        scrollbar-color-active: {CATPPUCCIN_MOCHA["blue"]} {CATPPUCCIN_MOCHA["mantle"]};
     }}
 
     #new-message-indicator {{
         height: 1;
         margin: 0 1;
-        color: {CATPPUCCIN_MOCHA['blue']};
+        color: {CATPPUCCIN_MOCHA["blue"]};
         content-align: center middle;
     }}
 
@@ -50,26 +68,42 @@ class PercyApp(App[None]):
         display: none;
     }}
 
+    #composer {{
+        layout: vertical;
+        height: auto;
+    }}
+
     #prompt {{
         margin: 0 1;
+    }}
+
+    #path-completion-menu {{
+        margin: 0 1;
+        background: {CATPPUCCIN_MOCHA["mantle"]};
+        border: tall {CATPPUCCIN_MOCHA["surface2"]};
+        color: {CATPPUCCIN_MOCHA["text"]};
+    }}
+
+    #path-completion-menu:focus {{
+        border: tall {CATPPUCCIN_MOCHA["mauve"]};
     }}
 
     #usage {{
         height: 1;
         margin: 0 1 1 1;
         padding: 0 1;
-        background: {CATPPUCCIN_MOCHA['mantle']};
-        color: {CATPPUCCIN_MOCHA['overlay1']};
+        background: {CATPPUCCIN_MOCHA["mantle"]};
+        color: {CATPPUCCIN_MOCHA["overlay1"]};
     }}
 
     Input {{
-        background: {CATPPUCCIN_MOCHA['mantle']};
-        color: {CATPPUCCIN_MOCHA['text']};
-        border: tall {CATPPUCCIN_MOCHA['surface2']};
+        background: {CATPPUCCIN_MOCHA["mantle"]};
+        color: {CATPPUCCIN_MOCHA["text"]};
+        border: tall {CATPPUCCIN_MOCHA["surface2"]};
     }}
 
     Input:focus {{
-        border: tall {CATPPUCCIN_MOCHA['mauve']};
+        border: tall {CATPPUCCIN_MOCHA["mauve"]};
     }}
 
     .message {{
@@ -77,8 +111,8 @@ class PercyApp(App[None]):
     }}
 
     .user-message {{
-        background: {CATPPUCCIN_MOCHA['surface0']};
-        color: {CATPPUCCIN_MOCHA['text']};
+        background: {CATPPUCCIN_MOCHA["surface0"]};
+        color: {CATPPUCCIN_MOCHA["text"]};
         margin: 1 0 1 0;
     }}
 
@@ -87,7 +121,7 @@ class PercyApp(App[None]):
     }}
 
     .status-message {{
-        color: {CATPPUCCIN_MOCHA['overlay0']};
+        color: {CATPPUCCIN_MOCHA["overlay0"]};
         margin: 1 1;
     }}
     """
@@ -105,6 +139,8 @@ class PercyApp(App[None]):
         self.memory_file = memory_file
         self.busy = False
         self.pending_new_messages = False
+        self.active_skill_name: str | None = None
+        self.active_skill_level: str | None = None
 
     def compose(self) -> ComposeResult:
         with Container(id="app-shell"):
@@ -121,7 +157,15 @@ class PercyApp(App[None]):
                 id="new-message-indicator",
                 classes="hidden",
             )
-            yield Input(placeholder="Send a message…", id="prompt")
+            with Container(id="composer"):
+                yield PathCompletionInput(
+                    placeholder="Send a message…",
+                    id="prompt",
+                    suggester=SuggestFromList(
+                        SLASH_COMMAND_SUGGESTIONS, case_sensitive=False
+                    ),
+                )
+                yield PathCompletionMenu(id="path-completion-menu")
             yield Static(build_usage_renderable(None), id="usage")
 
     def on_mount(self) -> None:
@@ -143,8 +187,24 @@ class PercyApp(App[None]):
             self.exit()
             return
 
+        command_handled = await self._handle_local_command(prompt)
+        if command_handled:
+            return
+
         self.busy = True
         self._process_prompt(prompt)
+
+    async def on_option_list_option_selected(
+        self, event: OptionList.OptionSelected
+    ) -> None:
+        if event.option_list.id != "path-completion-menu":
+            return
+
+        input_widget = self._input_widget()
+        if isinstance(input_widget, PathCompletionInput):
+            await input_widget.action_submit()
+            input_widget.focus()
+        event.stop()
 
     async def _remove_empty_state(self) -> None:
         try:
@@ -161,6 +221,9 @@ class PercyApp(App[None]):
 
     def _input_widget(self) -> Input:
         return self.query_one("#prompt", Input)
+
+    def _completion_menu_widget(self) -> PathCompletionMenu:
+        return self.query_one("#path-completion-menu", PathCompletionMenu)
 
     def _indicator_widget(self) -> Static:
         return self.query_one("#new-message-indicator", Static)
@@ -196,13 +259,67 @@ class PercyApp(App[None]):
         await self._remove_empty_state()
         await self._conversation().mount(widget)
 
+    async def _append_status_message(self, message: str) -> None:
+        was_at_bottom = self._should_autoscroll()
+        await self._append_widget(Static(message, classes="status-message"))
+        self._maybe_follow_or_notify(was_at_bottom)
+
+    def _set_prompt_placeholder(self) -> None:
+        input_widget = self._input_widget()
+        if self.active_skill_name == "caveman":
+            level = self.active_skill_level or "full"
+            input_widget.placeholder = f"Send a message… [caveman:{level}]"
+        else:
+            input_widget.placeholder = "Send a message…"
+
+    async def _handle_local_command(self, prompt: str) -> bool:
+        stripped = prompt.strip()
+        lower = stripped.lower()
+
+        if lower in {"/normal", "/normal mode", "/stop caveman", "/caveman off"}:
+            self.active_skill_name = None
+            self.active_skill_level = None
+            self._set_prompt_placeholder()
+            await self._append_status_message("Caveman mode off.")
+            return True
+
+        if lower.startswith("/caveman"):
+            parts = stripped.split(maxsplit=1)
+            level = "full"
+            if len(parts) > 1 and parts[1].strip():
+                level = parts[1].strip()
+
+            self.active_skill_name = "caveman"
+            self.active_skill_level = level
+            self._set_prompt_placeholder()
+            await self._append_status_message(f"Caveman mode on ({level}).")
+            return True
+
+        return False
+
+    def _build_effective_prompt(self, prompt: str) -> str:
+        if self.active_skill_name != "caveman":
+            return prompt
+
+        level = self.active_skill_level or "full"
+        return (
+            "Activate and use the skill 'caveman' for this response. "
+            "Use load_skill('caveman') if needed. "
+            f"Use intensity level '{level}'. "
+            "This mode is active until the user says to stop.\n\n"
+            f"User request:\n{prompt}"
+        )
+
     @work(exclusive=True)
     async def _process_prompt(self, prompt: str) -> None:
         input_widget = self._input_widget()
         input_widget.disabled = True
         was_at_bottom = self._should_autoscroll()
+        effective_prompt = self._build_effective_prompt(prompt)
 
-        user_widget = Static(build_user_renderable(prompt), classes="message user-message")
+        user_widget = Static(
+            build_user_renderable(prompt), classes="message user-message"
+        )
         assistant_widget = Static(
             build_stream_renderable("", ""), classes="message assistant-message"
         )
@@ -219,7 +336,14 @@ class PercyApp(App[None]):
         reasoning_mode = "full"
 
         try:
-            stream = self.agent.run(prompt, stream=True, session=self.session)
+            if self.session.service_session_id:
+                self.session.service_session_id = None
+            stream = self.agent.run(
+                effective_prompt,
+                stream=True,
+                session=self.session,
+                options={"store": False},
+            )
             async for chunk in stream:
                 if not chunk.contents:
                     continue
@@ -228,7 +352,9 @@ class PercyApp(App[None]):
                 for index, content in enumerate(chunk.contents):
                     if content.type == "text_reasoning":
                         event_type = content_event_type(content)
-                        if event_type and event_type.startswith("response.reasoning_summary_text"):
+                        if event_type and event_type.startswith(
+                            "response.reasoning_summary_text"
+                        ):
                             if reasoning_mode != "summary":
                                 reasoning_mode = "summary"
                                 reasoning_seen.clear()
@@ -268,13 +394,21 @@ class PercyApp(App[None]):
 
             response = await stream.get_final_response()
             reasoning_text = join_stream_text(reasoning_seen, reasoning_order)
-            response_text = join_stream_text(response_seen, response_order) or response.text or ""
+            response_text = (
+                join_stream_text(response_seen, response_order) or response.text or ""
+            )
             was_at_bottom = self._should_autoscroll()
-            assistant_widget.update(build_stream_renderable(reasoning_text, response_text))
+            assistant_widget.update(
+                build_stream_renderable(reasoning_text, response_text)
+            )
 
-            usage_details = response.usage_details or getattr(usage_content, "usage_details", None)
+            usage_details = response.usage_details or getattr(
+                usage_content, "usage_details", None
+            )
             turn_cost = estimate_cost(usage_details)
-            session_tally = update_session_usage_tally(self.session, usage_details, turn_cost)
+            session_tally = update_session_usage_tally(
+                self.session, usage_details, turn_cost
+            )
             self._usage_widget().update(
                 build_usage_renderable(usage_details, session_tally=session_tally)
             )
