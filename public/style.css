@@ -515,6 +515,11 @@ button.secondary {
   letter-spacing: 0;
 }
 
+body[data-theme="c64"] .icon-button {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 1rem;
+}
+
 button:disabled {
   opacity: 0.55;
 }
