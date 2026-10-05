@@ -7,6 +7,7 @@ const attachmentListEl = document.getElementById('attachmentList');
 const attachBtnEl = document.getElementById('attachBtn');
 const composerAbortBtnEl = document.getElementById('composerAbortBtn');
 const composerNewSessionBtnEl = document.getElementById('composerNewSessionBtn');
+const serverRestartBtnEl = document.getElementById('serverRestartBtn');
 const themeToggleBtnEl = document.getElementById('themeToggleBtn');
 
 const THEME_STORAGE_KEY = 'percy-web-chat-theme';
@@ -20,6 +21,7 @@ const TEXT_FILE_EXTENSIONS = new Set([
 
 let state = {
   isStreaming: false,
+  isRestartingServer: false,
   pendingMessageCount: 0,
   model: null,
   sessionName: 'Web Chat',
@@ -468,8 +470,11 @@ function setStatus(text) {
 
 function updateUiState() {
   const queue = state.pendingMessageCount ? ` · queued: ${state.pendingMessageCount}` : '';
-  setStatus(state.isStreaming ? `Percy is responding${queue}` : `Ready${queue}`);
+  if (!state.isRestartingServer) {
+    setStatus(state.isStreaming ? `Percy is responding${queue}` : `Ready${queue}`);
+  }
   composerAbortBtnEl.disabled = !state.isStreaming;
+  serverRestartBtnEl.disabled = state.isRestartingServer;
 }
 
 function ensureLiveAssistant() {
@@ -688,7 +693,17 @@ function connectEvents() {
       await loadInitialData();
     }
     if (payload.type === 'rpc_exit') {
-      setStatus('Percy RPC restarted…');
+      if (payload.reason === 'manual_restart') {
+        setStatus('Restarting Percy server…');
+      } else {
+        setStatus('Percy RPC restarted…');
+      }
+    }
+    if (payload.type === 'rpc_restart') {
+      state.isRestartingServer = false;
+      await loadInitialData();
+      updateUiState();
+      setStatus('Percy server restarted');
     }
   });
 
@@ -822,7 +837,28 @@ async function abortResponse() {
   }
 }
 
+async function restartServer() {
+  const prompt = state.isStreaming
+    ? 'Recover or restart Percy server now? This will stop the current response.'
+    : 'Recover or restart Percy server now?';
+
+  if (!confirm(prompt)) return;
+
+  state.isRestartingServer = true;
+  updateUiState();
+  setStatus('Restarting Percy server…');
+
+  try {
+    await api('/api/restart-server', { method: 'POST', body: '{}' });
+  } catch (error) {
+    state.isRestartingServer = false;
+    updateUiState();
+    addMessage('system', { text: `Restart error: ${error.message}` });
+  }
+}
+
 composerAbortBtnEl.addEventListener('click', abortResponse);
+serverRestartBtnEl.addEventListener('click', restartServer);
 
 composerNewSessionBtnEl.addEventListener('click', async () => {
   if (!confirm('Start a new Percy chat session?')) return;

@@ -31,6 +31,8 @@ let rpcState = {
 
 const pending = new Map();
 const sseClients = new Set();
+let rpcRestartTimer = null;
+let rpcExitReason = 'unexpected_exit';
 
 function makeId() {
   return crypto.randomUUID();
@@ -45,6 +47,25 @@ function broadcast(event, data) {
   for (const client of sseClients) {
     sendSse(client, event, data);
   }
+}
+
+function clearRpcRestartTimer() {
+  if (!rpcRestartTimer) return;
+  clearTimeout(rpcRestartTimer);
+  rpcRestartTimer = null;
+}
+
+function scheduleRpcRestart(delayMs = 1000) {
+  clearRpcRestartTimer();
+  rpcRestartTimer = setTimeout(() => {
+    rpcRestartTimer = null;
+    try {
+      startRpc();
+      refreshState().catch(() => {});
+    } catch (restartError) {
+      console.error('Failed to restart pi RPC:', restartError);
+    }
+  }, delayMs);
 }
 
 function attachJsonlReader(stream, onLine) {
@@ -131,7 +152,9 @@ function startRpc() {
   });
 
   rpc.on('exit', (code, signal) => {
-    console.error(`pi RPC exited (code=${code}, signal=${signal})`);
+    const exitReason = rpcExitReason;
+    rpcExitReason = 'unexpected_exit';
+    console.error(`pi RPC exited (code=${code}, signal=${signal}, reason=${exitReason})`);
     rpcReady = false;
     rpc = null;
     const error = new Error(`pi RPC exited (code=${code}, signal=${signal})`);
@@ -139,20 +162,62 @@ function startRpc() {
     pending.clear();
     rpcState.isStreaming = false;
     rpcState.lastError = error.message;
-    broadcast('server', { type: 'rpc_exit', code, signal, message: error.message });
-    setTimeout(() => {
-      try {
-        startRpc();
-        refreshState().catch(() => {});
-      } catch (restartError) {
-        console.error('Failed to restart pi RPC:', restartError);
-      }
-    }, 1000);
+    broadcast('server', { type: 'rpc_exit', code, signal, message: error.message, reason: exitReason });
+    if (exitReason !== 'manual_restart') {
+      scheduleRpcRestart(1000);
+    }
   });
 
   refreshState().catch((error) => {
     console.error('Initial state refresh failed:', error);
   });
+}
+
+function stopRpcProcess(options = {}) {
+  const { reason = 'manual_restart', timeoutMs = 2000 } = options;
+  clearRpcRestartTimer();
+
+  if (!rpc) return Promise.resolve(false);
+
+  const child = rpc;
+  rpcExitReason = reason;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(forceTimer);
+      resolve(true);
+    };
+
+    child.once('exit', finish);
+
+    const forceTimer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        finish();
+      }
+    }, timeoutMs);
+
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      finish();
+    }
+  });
+}
+
+async function restartRpcProcess() {
+  clearRpcRestartTimer();
+  if (rpc) {
+    await stopRpcProcess({ reason: 'manual_restart' });
+  }
+  startRpc();
+  const state = await refreshState();
+  broadcast('server', { type: 'rpc_restart', state });
+  return state;
 }
 
 function sendRpc(command) {
@@ -364,6 +429,11 @@ const server = http.createServer(async (req, res) => {
       await refreshState();
       broadcast('server', { type: 'new_session' });
       return json(res, 200, { ok: response.success, response, state: rpcState });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/restart-server') {
+      const state = await restartRpcProcess();
+      return json(res, 200, { ok: true, state });
     }
 
     if (req.method === 'GET' && url.pathname === '/api/healthz') {

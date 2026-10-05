@@ -1,4 +1,4 @@
-const CACHE_NAME = 'percy-web-chat-v2';
+const CACHE_NAME = 'percy-web-chat-v3';
 const APP_SHELL = [
   '/',
   '/app.js',
