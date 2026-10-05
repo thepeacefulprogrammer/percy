@@ -7,7 +7,6 @@ const attachmentListEl = document.getElementById('attachmentList');
 const attachBtnEl = document.getElementById('attachBtn');
 const composerAbortBtnEl = document.getElementById('composerAbortBtn');
 const composerNewSessionBtnEl = document.getElementById('composerNewSessionBtn');
-const serverRestartBtnEl = document.getElementById('serverRestartBtn');
 const themeToggleBtnEl = document.getElementById('themeToggleBtn');
 
 const THEME_STORAGE_KEY = 'percy-web-chat-theme';
@@ -21,7 +20,6 @@ const TEXT_FILE_EXTENSIONS = new Set([
 
 let state = {
   isStreaming: false,
-  isRestartingServer: false,
   pendingMessageCount: 0,
   model: null,
   sessionName: 'Web Chat',
@@ -30,6 +28,10 @@ let liveAssistantEl = null;
 let liveAssistantText = '';
 let pendingAttachments = [];
 let currentTheme = 'percy';
+let startupLoaded = false;
+let startupErrorShown = false;
+let startupRetryTimer = null;
+let eventsConnected = false;
 
 function getStoredTheme() {
   try {
@@ -90,6 +92,7 @@ function escapeAttribute(text) {
 function sanitizeUrl(url) {
   const value = String(url || '').trim();
   if (/^(https?:|mailto:)/i.test(value)) return value;
+  if (/^(\/(?!\/)|\.\/|\.\.\/)/.test(value)) return value;
   return '#';
 }
 
@@ -470,11 +473,8 @@ function setStatus(text) {
 
 function updateUiState() {
   const queue = state.pendingMessageCount ? ` · queued: ${state.pendingMessageCount}` : '';
-  if (!state.isRestartingServer) {
-    setStatus(state.isStreaming ? `Percy is responding${queue}` : `Ready${queue}`);
-  }
+  setStatus(state.isStreaming ? `Percy is responding${queue}` : `Ready${queue}`);
   composerAbortBtnEl.disabled = !state.isStreaming;
-  serverRestartBtnEl.disabled = state.isRestartingServer;
 }
 
 function ensureLiveAssistant() {
@@ -511,6 +511,16 @@ async function loadInitialData() {
   state = { ...state, ...freshState };
   renderHistory(messages);
   updateUiState();
+  startupLoaded = true;
+  startupErrorShown = false;
+}
+
+function scheduleStartupRetry() {
+  if (startupLoaded || startupRetryTimer) return;
+  startupRetryTimer = globalThis.setTimeout(() => {
+    startupRetryTimer = null;
+    bootstrap();
+  }, 2000);
 }
 
 function isTextLikeFile(file) {
@@ -683,6 +693,9 @@ function connectEvents() {
     if (payload.type === 'hello' && payload.state) {
       state = { ...state, ...payload.state };
       updateUiState();
+      if (!startupLoaded) {
+        bootstrap();
+      }
     }
     if (payload.type === 'new_session') {
       messagesEl.innerHTML = '';
@@ -693,17 +706,7 @@ function connectEvents() {
       await loadInitialData();
     }
     if (payload.type === 'rpc_exit') {
-      if (payload.reason === 'manual_restart') {
-        setStatus('Restarting Percy server…');
-      } else {
-        setStatus('Percy RPC restarted…');
-      }
-    }
-    if (payload.type === 'rpc_restart') {
-      state.isRestartingServer = false;
-      await loadInitialData();
-      updateUiState();
-      setStatus('Percy server restarted');
+      setStatus('Percy RPC restarted…');
     }
   });
 
@@ -837,28 +840,7 @@ async function abortResponse() {
   }
 }
 
-async function restartServer() {
-  const prompt = state.isStreaming
-    ? 'Recover or restart Percy server now? This will stop the current response.'
-    : 'Recover or restart Percy server now?';
-
-  if (!confirm(prompt)) return;
-
-  state.isRestartingServer = true;
-  updateUiState();
-  setStatus('Restarting Percy server…');
-
-  try {
-    await api('/api/restart-server', { method: 'POST', body: '{}' });
-  } catch (error) {
-    state.isRestartingServer = false;
-    updateUiState();
-    addMessage('system', { text: `Restart error: ${error.message}` });
-  }
-}
-
 composerAbortBtnEl.addEventListener('click', abortResponse);
-serverRestartBtnEl.addEventListener('click', restartServer);
 
 composerNewSessionBtnEl.addEventListener('click', async () => {
   if (!confirm('Start a new Percy chat session?')) return;
@@ -873,13 +855,27 @@ themeToggleBtnEl.addEventListener('click', toggleTheme);
 
 applyTheme(getStoredTheme(), { persist: false });
 
-loadInitialData().catch((error) => {
-  addMessage('system', { text: `Startup error: ${error.message}` });
-  setStatus('Startup error');
-}).finally(() => {
-  updateUiState();
-  connectEvents();
-  autoResizeInput();
-  inputEl.focus();
-  registerServiceWorker();
-});
+async function bootstrap() {
+  try {
+    await loadInitialData();
+  } catch (error) {
+    startupLoaded = false;
+    if (!startupErrorShown) {
+      addMessage('system', { text: `Startup error: ${error.message}. Retrying…` });
+      startupErrorShown = true;
+    }
+    setStatus('Startup error. Retrying…');
+    scheduleStartupRetry();
+  } finally {
+    updateUiState();
+    if (!eventsConnected) {
+      connectEvents();
+      eventsConnected = true;
+    }
+    autoResizeInput();
+    inputEl.focus();
+    registerServiceWorker();
+  }
+}
+
+bootstrap();
