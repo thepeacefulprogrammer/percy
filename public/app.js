@@ -8,6 +8,10 @@ const attachmentListEl = document.getElementById('attachmentList');
 const attachBtnEl = document.getElementById('attachBtn');
 const composerAbortBtnEl = document.getElementById('composerAbortBtn');
 const composerNewSessionBtnEl = document.getElementById('composerNewSessionBtn');
+const themeToggleBtnEl = document.getElementById('themeToggleBtn');
+
+const THEME_STORAGE_KEY = 'percy-web-chat-theme';
+const THEMES = ['percy', 'c64'];
 
 const TEXT_FILE_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'json', 'js', 'cjs', 'mjs', 'ts', 'tsx', 'jsx', 'css', 'scss', 'less',
@@ -24,6 +28,41 @@ let state = {
 let liveAssistantEl = null;
 let liveAssistantText = '';
 let pendingAttachments = [];
+let currentTheme = 'percy';
+
+function getStoredTheme() {
+  try {
+    const storedTheme = globalThis.localStorage?.getItem(THEME_STORAGE_KEY);
+    return THEMES.includes(storedTheme) ? storedTheme : 'percy';
+  } catch {
+    return 'percy';
+  }
+}
+
+function updateThemeToggleButton() {
+  const nextTheme = currentTheme === 'percy' ? 'c64' : 'percy';
+  const label = nextTheme === 'c64' ? 'Switch to C64 theme' : 'Switch to Monochrome theme';
+  themeToggleBtnEl.title = label;
+  themeToggleBtnEl.setAttribute('aria-label', label);
+}
+
+function applyTheme(theme, options = {}) {
+  currentTheme = THEMES.includes(theme) ? theme : 'percy';
+  document.body.dataset.theme = currentTheme;
+  updateThemeToggleButton();
+
+  if (options.persist === false) return;
+
+  try {
+    globalThis.localStorage?.setItem(THEME_STORAGE_KEY, currentTheme);
+  } catch {}
+}
+
+function toggleTheme() {
+  const nextTheme = currentTheme === 'percy' ? 'c64' : 'percy';
+  applyTheme(nextTheme);
+  setStatus(`Theme: ${nextTheme === 'c64' ? 'C64' : 'Monochrome'}`);
+}
 
 function escapeHtml(text) {
   return String(text || '')
@@ -31,6 +70,87 @@ function escapeHtml(text) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+}
+
+function escapeAttribute(text) {
+  return escapeHtml(text).replaceAll("'", '&#39;');
+}
+
+function sanitizeUrl(url) {
+  const value = String(url || '').trim();
+  if (/^(https?:|mailto:)/i.test(value)) return value;
+  return '#';
+}
+
+function renderInlineMarkdown(text) {
+  const tokens = [];
+  const stash = (html) => `\u0000${tokens.push(html) - 1}\u0000`;
+
+  let html = escapeHtml(text || '');
+
+  html = html.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${code}</code>`));
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
+    const href = escapeAttribute(sanitizeUrl(url));
+    return stash(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+  });
+
+  html = html.replace(/\*\*([^*][\s\S]*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([^_][\s\S]*?)__/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  html = html.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+
+  return html.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] || '');
+}
+
+function renderMarkdown(text) {
+  const source = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (!source) return '';
+
+  const blockTokens = [];
+  const stashBlock = (html) => `@@BLOCK${blockTokens.push(html) - 1}@@`;
+
+  const withCodeBlocks = source.replace(/```([^\n`]*)\n([\s\S]*?)```/g, (_, rawLanguage, rawCode) => {
+    const language = String(rawLanguage || '').trim();
+    const code = escapeHtml(String(rawCode || '').replace(/\n$/, ''));
+    const languageAttr = language ? ` data-language="${escapeAttribute(language)}"` : '';
+    return stashBlock(`<pre><code${languageAttr}>${code}</code></pre>`);
+  });
+
+  const rendered = withCodeBlocks
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      if (/^@@BLOCK\d+@@$/.test(block)) return block;
+
+      const headingMatch = block.match(/^(#{1,6})\s+(.+)$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        return `<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`;
+      }
+
+      const lines = block.split('\n');
+
+      if (lines.every((line) => /^>\s?/.test(line))) {
+        const content = lines.map((line) => renderInlineMarkdown(line.replace(/^>\s?/, ''))).join('<br>');
+        return `<blockquote>${content}</blockquote>`;
+      }
+
+      if (lines.every((line) => /^[-*+]\s+/.test(line))) {
+        const items = lines.map((line) => `<li>${renderInlineMarkdown(line.replace(/^[-*+]\s+/, ''))}</li>`).join('');
+        return `<ul>${items}</ul>`;
+      }
+
+      if (lines.every((line) => /^\d+\.\s+/.test(line))) {
+        const items = lines.map((line) => `<li>${renderInlineMarkdown(line.replace(/^\d+\.\s+/, ''))}</li>`).join('');
+        return `<ol>${items}</ol>`;
+      }
+
+      return `<p>${lines.map((line) => renderInlineMarkdown(line)).join('<br>')}</p>`;
+    })
+    .join('');
+
+  return rendered.replace(/@@BLOCK(\d+)@@/g, (_, index) => blockTokens[Number(index)] || '');
 }
 
 function makeId() {
@@ -179,7 +299,7 @@ async function handleCopyMessage(wrapper, buttonEl) {
 function renderMessageBody(container, payload = {}) {
   const bodyEl = document.createElement('div');
   bodyEl.className = 'body';
-  bodyEl.textContent = payload.text || '';
+  bodyEl.innerHTML = renderMarkdown(payload.text || '');
   container.appendChild(bodyEl);
 
   if (Array.isArray(payload.images) && payload.images.length) {
@@ -239,7 +359,7 @@ function addMessage(role, payload = {}) {
 
   const roleEl = document.createElement('span');
   roleEl.className = 'role';
-  roleEl.textContent = role === 'assistant' ? 'Percy' : role;
+  roleEl.textContent = role === 'assistant' ? 'Percy' : role === 'user' ? 'Randy' : role;
   wrapper.appendChild(roleEl);
 
   renderMessageBody(wrapper, normalizedPayload);
@@ -304,7 +424,7 @@ function ensureLiveAssistant() {
 function updateLiveAssistant(text) {
   const el = ensureLiveAssistant();
   const bodyEl = el.querySelector('.body');
-  if (bodyEl) bodyEl.textContent = text;
+  if (bodyEl) bodyEl.innerHTML = renderMarkdown(text);
   scrollToBottom();
 }
 
@@ -653,6 +773,10 @@ composerNewSessionBtnEl.addEventListener('click', async () => {
     addMessage('system', { text: `Error: ${error.message}` });
   }
 });
+
+themeToggleBtnEl.addEventListener('click', toggleTheme);
+
+applyTheme(getStoredTheme(), { persist: false });
 
 loadInitialData().catch((error) => {
   addMessage('system', { text: `Startup error: ${error.message}` });
