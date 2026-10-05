@@ -7,8 +7,7 @@ const attachmentInputEl = document.getElementById('attachmentInput');
 const attachmentListEl = document.getElementById('attachmentList');
 const attachBtnEl = document.getElementById('attachBtn');
 const composerAbortBtnEl = document.getElementById('composerAbortBtn');
-const abortBtnEl = document.getElementById('abortBtn');
-const newSessionBtnEl = document.getElementById('newSessionBtn');
+const composerNewSessionBtnEl = document.getElementById('composerNewSessionBtn');
 
 const TEXT_FILE_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'json', 'js', 'cjs', 'mjs', 'ts', 'tsx', 'jsx', 'css', 'scss', 'less',
@@ -291,7 +290,6 @@ function updateUiState() {
   const queue = state.pendingMessageCount ? ` · queued: ${state.pendingMessageCount}` : '';
   subtitleEl.textContent = `${state.sessionName || 'Web Chat'} · ${modelName}`;
   setStatus(state.isStreaming ? `Percy is responding${queue}` : `Ready${queue}`);
-  abortBtnEl.disabled = !state.isStreaming;
   composerAbortBtnEl.disabled = !state.isStreaming;
 }
 
@@ -645,10 +643,9 @@ async function abortResponse() {
   }
 }
 
-abortBtnEl.addEventListener('click', abortResponse);
 composerAbortBtnEl.addEventListener('click', abortResponse);
 
-newSessionBtnEl.addEventListener('click', async () => {
+composerNewSessionBtnEl.addEventListener('click', async () => {
   if (!confirm('Start a new Percy chat session?')) return;
   try {
     await api('/api/new-session', { method: 'POST', body: '{}' });
