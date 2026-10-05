@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Percy Web Chat</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Percy Web Chat</h1>
+          <p id="subtitle">Local chat UI for your Termux Percy session</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="newSessionBtn" class="secondary">New chat</button>
+          <button id="abortBtn" class="secondary">Stop</button>
+        </div>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <section id="statusBar" class="status-bar">Connecting…</section>
+
+      <form id="chatForm" class="composer">
+        <textarea id="messageInput" rows="3" placeholder="Type a message…"></textarea>
+        <input id="attachmentInput" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.js,.cjs,.mjs,.ts,.tsx,.jsx,.css,.html,.xml,.yml,.yaml,.csv,.py,.sh,.java,.kt,.go,.rs,.rb,.php,.sql" hidden>
+        <div id="attachmentList" class="attachment-list" aria-live="polite"></div>
+        <div class="composer-actions">
+          <div class="composer-actions-left">
+            <button id="attachBtn" class="secondary icon-button" type="button" aria-label="Attach files" title="Attach files">📎</button>
+            <button id="composerAbortBtn" class="secondary icon-button" type="button" aria-label="Stop response" title="Stop response">■</button>
+          </div>
+        </div>
+      </form>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
