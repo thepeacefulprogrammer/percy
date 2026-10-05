@@ -82,6 +82,13 @@ function sanitizeUrl(url) {
   return '#';
 }
 
+function sanitizeImageUrl(url) {
+  const value = String(url || '').trim();
+  if (/^(https?:|data:image\/|blob:)/i.test(value)) return value;
+  if (/^(\/|\.\/|\.\.\/)/.test(value)) return value;
+  return '';
+}
+
 function renderInlineMarkdown(text) {
   const tokens = [];
   const stash = (html) => `\u0000${tokens.push(html) - 1}\u0000`;
@@ -89,6 +96,11 @@ function renderInlineMarkdown(text) {
   let html = escapeHtml(text || '');
 
   html = html.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${code}</code>`));
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, url) => {
+    const src = sanitizeImageUrl(url);
+    if (!src) return alt || '';
+    return stash(`<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}" loading="lazy">`);
+  });
   html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
     const href = escapeAttribute(sanitizeUrl(url));
     return stash(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`);
@@ -180,17 +192,7 @@ function formatBytes(bytes) {
   return `${value.toFixed(precision)} ${unit}`;
 }
 
-function assistantTextFromMessage(message) {
-  if (!message) return '';
-  if (typeof message.content === 'string') return message.content;
-  if (!Array.isArray(message.content)) return '';
-  return message.content
-    .filter((part) => part && part.type === 'text' && typeof part.text === 'string')
-    .map((part) => part.text)
-    .join('');
-}
-
-function extractUserParts(message) {
+function extractMessageParts(message) {
   if (!message) return { text: '', images: [] };
 
   if (typeof message.content === 'string') {
@@ -207,8 +209,35 @@ function extractUserParts(message) {
     .join('');
 
   const images = message.content
-    .filter((part) => part && part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string')
-    .map((part) => ({ data: part.data, mimeType: part.mimeType }));
+    .map((part) => {
+      if (!part || typeof part !== 'object') return null;
+
+      if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
+        return {
+          data: part.data,
+          mimeType: part.mimeType,
+          name: part.name,
+        };
+      }
+
+      const rawUrl = part.type === 'image_url'
+        ? part.image_url?.url || part.url
+        : part.type === 'image'
+          ? part.url || part.src
+          : null;
+
+      if (typeof rawUrl === 'string') {
+        const previewUrl = sanitizeImageUrl(rawUrl);
+        if (!previewUrl) return null;
+        return {
+          previewUrl,
+          name: part.name,
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
 
   return { text, images };
 }
@@ -307,14 +336,18 @@ function renderMessageBody(container, payload = {}) {
     galleryEl.className = 'message-images';
 
     for (const image of payload.images) {
+      const src = image.previewUrl || (image.data && image.mimeType ? `data:${image.mimeType};base64,${image.data}` : '');
+      if (!src) continue;
       const imgEl = document.createElement('img');
       imgEl.alt = image.name || 'Attached image';
       imgEl.loading = 'lazy';
-      imgEl.src = image.previewUrl || `data:${image.mimeType};base64,${image.data}`;
+      imgEl.src = src;
       galleryEl.appendChild(imgEl);
     }
 
-    container.appendChild(galleryEl);
+    if (galleryEl.childElementCount) {
+      container.appendChild(galleryEl);
+    }
   }
 
   const visibleFiles = Array.isArray(payload.files)
@@ -352,6 +385,26 @@ function renderMessageBody(container, payload = {}) {
   return bodyEl;
 }
 
+function setMessageContent(wrapper, payload = {}) {
+  wrapper.querySelector('.body')?.remove();
+  wrapper.querySelector('.message-images')?.remove();
+  wrapper.querySelector('.message-files')?.remove();
+
+  const copyButtonEl = wrapper.querySelector('.message-copy-button');
+  if (!copyButtonEl) {
+    renderMessageBody(wrapper, payload);
+    return;
+  }
+
+  const contentEl = document.createElement('div');
+  renderMessageBody(contentEl, payload);
+  wrapper.insertBefore(contentEl.querySelector('.body'), copyButtonEl);
+  const galleryEl = contentEl.querySelector('.message-images');
+  if (galleryEl) wrapper.insertBefore(galleryEl, copyButtonEl);
+  const filesEl = contentEl.querySelector('.message-files');
+  if (filesEl) wrapper.insertBefore(filesEl, copyButtonEl);
+}
+
 function addMessage(role, payload = {}) {
   const normalizedPayload = typeof payload === 'string' ? { text: payload } : payload;
   const wrapper = document.createElement('article');
@@ -362,7 +415,7 @@ function addMessage(role, payload = {}) {
   roleEl.textContent = role === 'assistant' ? 'Percy' : role === 'user' ? 'Randy' : role;
   wrapper.appendChild(roleEl);
 
-  renderMessageBody(wrapper, normalizedPayload);
+  setMessageContent(wrapper, normalizedPayload);
 
   const copyBtnEl = document.createElement('button');
   copyBtnEl.className = 'message-copy-button';
@@ -386,17 +439,16 @@ function renderHistory(messages) {
   liveAssistantText = '';
 
   for (const message of messages) {
-    if (message.role === 'user') {
-      const { text, images } = extractUserParts(message);
+    if (message.role === 'user' || message.role === 'assistant') {
+      const { text, images } = extractMessageParts(message);
       const parsed = parseFileBlocks(text);
-      addMessage('user', {
-        text: parsed.text,
-        images,
-        files: parsed.files,
-      });
-    } else if (message.role === 'assistant') {
-      const text = assistantTextFromMessage(message);
-      if (text.trim()) addMessage('assistant', { text });
+      if (parsed.text.trim() || images.length || parsed.files.length) {
+        addMessage(message.role, {
+          text: parsed.text,
+          images,
+          files: parsed.files,
+        });
+      }
     }
   }
 }
@@ -423,8 +475,7 @@ function ensureLiveAssistant() {
 
 function updateLiveAssistant(text) {
   const el = ensureLiveAssistant();
-  const bodyEl = el.querySelector('.body');
-  if (bodyEl) bodyEl.innerHTML = renderMarkdown(text);
+  setMessageContent(el, { text });
   scrollToBottom();
 }
 
@@ -672,10 +723,11 @@ function connectEvents() {
     }
 
     if (payload.type === 'message_end' && payload.message?.role === 'assistant') {
-      const text = assistantTextFromMessage(payload.message);
-      if (text.trim()) {
+      const { text, images } = extractMessageParts(payload.message);
+      if (text.trim() || images.length) {
         liveAssistantText = text;
-        updateLiveAssistant(liveAssistantText);
+        const el = liveAssistantEl || addMessage('assistant', { text, images });
+        setMessageContent(el, { text, images });
         liveAssistantEl = null;
         liveAssistantText = '';
       }
