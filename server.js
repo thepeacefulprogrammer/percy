@@ -204,13 +204,25 @@ function json(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
-function serveFile(res, filePath, contentType) {
+function serveFile(req, res, filePath, contentType) {
   fs.readFile(filePath, (error, content) => {
     if (error) {
       json(res, 404, { error: 'Not found' });
       return;
     }
-    res.writeHead(200, { 'Content-Type': contentType + '; charset=utf-8' });
+
+    const headers = {
+      'Content-Type': /^(text\/|application\/(javascript|json|manifest\+json))/i.test(contentType)
+        ? `${contentType}; charset=utf-8`
+        : contentType,
+      'Content-Length': Buffer.byteLength(content),
+    };
+
+    res.writeHead(200, headers);
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
     res.end(content);
   });
 }
@@ -251,16 +263,36 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
 
   try {
-    if (req.method === 'GET' && url.pathname === '/') {
-      return serveFile(res, path.join(PUBLIC_DIR, 'index.html'), 'text/html');
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'index.html'), 'text/html');
     }
 
-    if (req.method === 'GET' && url.pathname === '/app.js') {
-      return serveFile(res, path.join(PUBLIC_DIR, 'app.js'), 'application/javascript');
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/app.js') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'app.js'), 'application/javascript');
     }
 
-    if (req.method === 'GET' && url.pathname === '/style.css') {
-      return serveFile(res, path.join(PUBLIC_DIR, 'style.css'), 'text/css');
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/style.css') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'style.css'), 'text/css');
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/manifest.webmanifest') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'manifest.webmanifest'), 'application/manifest+json');
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/sw.js') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'sw.js'), 'application/javascript');
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/icon-192.png') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'icon-192.png'), 'image/png');
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/icon-512.png') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'icon-512.png'), 'image/png');
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/apple-touch-icon.png') {
+      return serveFile(req, res, path.join(PUBLIC_DIR, 'apple-touch-icon.png'), 'image/png');
     }
 
     if (req.method === 'GET' && url.pathname === '/api/events') {

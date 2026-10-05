@@ -1,6 +1,5 @@
 const messagesEl = document.getElementById('messages');
 const statusBarEl = document.getElementById('statusBar');
-const subtitleEl = document.getElementById('subtitle');
 const formEl = document.getElementById('chatForm');
 const inputEl = document.getElementById('messageInput');
 const attachmentInputEl = document.getElementById('attachmentInput');
@@ -62,6 +61,16 @@ function toggleTheme() {
   const nextTheme = currentTheme === 'percy' ? 'c64' : 'percy';
   applyTheme(nextTheme);
   setStatus(`Theme: ${nextTheme === 'c64' ? 'C64' : 'Monochrome'}`);
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in globalThis.navigator)) return;
+
+  try {
+    await globalThis.navigator.serviceWorker.register('/sw.js');
+  } catch (error) {
+    console.warn('Service worker registration failed:', error);
+  }
 }
 
 function escapeHtml(text) {
@@ -458,9 +467,7 @@ function setStatus(text) {
 }
 
 function updateUiState() {
-  const modelName = state.model?.name || state.model?.id || 'default model';
   const queue = state.pendingMessageCount ? ` · queued: ${state.pendingMessageCount}` : '';
-  subtitleEl.textContent = `${state.sessionName || 'Web Chat'} · ${modelName}`;
   setStatus(state.isStreaming ? `Percy is responding${queue}` : `Ready${queue}`);
   composerAbortBtnEl.disabled = !state.isStreaming;
 }
@@ -838,4 +845,5 @@ loadInitialData().catch((error) => {
   connectEvents();
   autoResizeInput();
   inputEl.focus();
+  registerServiceWorker();
 });
