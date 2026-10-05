@@ -21,6 +21,13 @@ cd ~/pi-web-chat
 ./stop.sh
 ```
 
+## Restart
+
+```bash
+cd ~/pi-web-chat
+./restart.sh
+```
+
 ## Status
 
 ```bash
@@ -33,3 +40,4 @@ cd ~/pi-web-chat
 - This uses a dedicated Pi RPC session named `Web Chat`.
 - Session files are stored in `~/.local/share/pi-web-chat/sessions`.
 - It reuses your installed Pi config/model credentials.
+- The server now runs under `supervisor.sh`, so if `server.js` crashes, it is automatically restarted.
