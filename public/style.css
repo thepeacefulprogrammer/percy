@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Orbitron:wght@400;600;700&family=Press+Start+2P&display=swap');
 
 :root {
   color-scheme: dark;
@@ -76,6 +76,82 @@ body[data-theme="c64"] {
   --font-main: "Press Start 2P", "Courier New", Courier, monospace;
   --font-size-base: 13px;
   --font-letter-spacing: 0.05em;
+}
+
+body[data-theme="modern"] {
+  --bg: #0f172a;
+  --bg-2: #17223b;
+  --panel: #18253f;
+  --panel-2: #223458;
+  --panel-3: #2b426f;
+  --text: #e8f1ff;
+  --muted: #a8bddc;
+  --dim: #7083a5;
+  --accent: #7dd3fc;
+  --accent-2: #f8fbff;
+  --border: #5c7fb8;
+  --border-strong: #8fbcff;
+  --danger: #ffb86b;
+  --body-top-glow: rgba(125, 211, 252, 0.14);
+  --body-base: #0a1222;
+  --text-glow: rgba(125, 211, 252, 0.1);
+  --scanline: rgba(255, 255, 255, 0.01);
+  --vignette: rgba(3, 7, 18, 0.48);
+  --message-user-bg: linear-gradient(180deg, #31558a, #27456f);
+  --message-assistant-bg: linear-gradient(180deg, #1d3153, #15263f);
+  --message-system-bg: linear-gradient(180deg, #5d4a22, #3d3117);
+  --message-system-text: #ffefcc;
+  --message-system-border: #e2ba68;
+  --textarea-bg: #111c31;
+  --button-bg: linear-gradient(180deg, #325284, #243d66);
+  --button-hover-bg: linear-gradient(180deg, #3f659f, #2b4976);
+  --button-secondary-bg: linear-gradient(180deg, #223758, #182842);
+  --copy-button-bg: linear-gradient(180deg, rgba(34, 55, 88, 0.96), rgba(24, 40, 66, 0.96));
+  --messages-bg: linear-gradient(180deg, rgba(23, 35, 59, 0.95), rgba(12, 19, 34, 0.98));
+  --scrollbar-track: #0f182b;
+  --scrollbar-thumb: #31558a;
+  --scrollbar-thumb-hover: #4671b3;
+  --font-main: Inter, "Segoe UI", system-ui, sans-serif;
+  --font-size-base: 15px;
+  --font-letter-spacing: 0.01em;
+}
+
+body[data-theme="futuristic"] {
+  --bg: #040816;
+  --bg-2: #081126;
+  --panel: #0a1830;
+  --panel-2: #0f2347;
+  --panel-3: #14305f;
+  --text: #d8fbff;
+  --muted: #7fd6e7;
+  --dim: #4e8ea7;
+  --accent: #2df2ff;
+  --accent-2: #f3ffff;
+  --border: #1db6d4;
+  --border-strong: #7ef8ff;
+  --danger: #ffd36f;
+  --body-top-glow: rgba(45, 242, 255, 0.18);
+  --body-base: #02050d;
+  --text-glow: rgba(45, 242, 255, 0.22);
+  --scanline: rgba(45, 242, 255, 0.03);
+  --vignette: rgba(0, 0, 0, 0.62);
+  --message-user-bg: linear-gradient(180deg, #123d69, #0d2f51);
+  --message-assistant-bg: linear-gradient(180deg, #081d35, #061425);
+  --message-system-bg: linear-gradient(180deg, #57451a, #3d300f);
+  --message-system-text: #fff1c8;
+  --message-system-border: #f1c96f;
+  --textarea-bg: #07111f;
+  --button-bg: linear-gradient(180deg, #0f5b74, #0a4053);
+  --button-hover-bg: linear-gradient(180deg, #1380a3, #0e5670);
+  --button-secondary-bg: linear-gradient(180deg, #0b223f, #07172b);
+  --copy-button-bg: linear-gradient(180deg, rgba(11, 34, 63, 0.96), rgba(7, 23, 43, 0.96));
+  --messages-bg: linear-gradient(180deg, rgba(8, 17, 38, 0.94), rgba(2, 8, 22, 0.99));
+  --scrollbar-track: #07101d;
+  --scrollbar-thumb: #0f5b74;
+  --scrollbar-thumb-hover: #15a1c0;
+  --font-main: "Orbitron", "Segoe UI", sans-serif;
+  --font-size-base: 15px;
+  --font-letter-spacing: 0.04em;
 }
 
 * { box-sizing: border-box; }

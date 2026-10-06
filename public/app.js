@@ -22,7 +22,13 @@ const composerNewSessionBtnEl = document.getElementById('composerNewSessionBtn')
 const themeToggleBtnEl = document.getElementById('themeToggleBtn');
 
 const THEME_STORAGE_KEY = 'percy-web-chat-theme';
-const THEMES = ['percy', 'c64'];
+const THEMES = ['percy', 'c64', 'modern', 'futuristic'];
+const THEME_LABELS = {
+  percy: 'Monochrome',
+  c64: 'C64',
+  modern: 'Modern',
+  futuristic: 'Futuristic',
+};
 
 let state = {
   isStreaming: false,
@@ -50,9 +56,14 @@ function getStoredTheme() {
   }
 }
 
+function getNextTheme(theme = currentTheme) {
+  const index = THEMES.indexOf(theme);
+  return THEMES[(index + 1 + THEMES.length) % THEMES.length] || THEMES[0];
+}
+
 function updateThemeToggleButton() {
-  const nextTheme = currentTheme === 'percy' ? 'c64' : 'percy';
-  const label = nextTheme === 'c64' ? 'Switch to C64 theme' : 'Switch to Monochrome theme';
+  const nextTheme = getNextTheme();
+  const label = `Switch to ${THEME_LABELS[nextTheme] || nextTheme} theme`;
   themeToggleBtnEl.title = label;
   themeToggleBtnEl.setAttribute('aria-label', label);
 }
@@ -70,9 +81,9 @@ function applyTheme(theme, options = {}) {
 }
 
 function toggleTheme() {
-  const nextTheme = currentTheme === 'percy' ? 'c64' : 'percy';
+  const nextTheme = getNextTheme();
   applyTheme(nextTheme);
-  setStatus(`Theme: ${nextTheme === 'c64' ? 'C64' : 'Monochrome'}`);
+  setStatus(`Theme: ${THEME_LABELS[nextTheme] || nextTheme}`);
 }
 
 async function registerServiceWorker() {
