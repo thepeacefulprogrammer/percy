@@ -11,11 +11,15 @@ const themeToggleBtnEl = document.getElementById('themeToggleBtn');
 
 const THEME_STORAGE_KEY = 'percy-web-chat-theme';
 const THEMES = ['percy', 'c64'];
+const ATTACHMENT_BLOCK_PATTERN = /<percy-files>([\s\S]*?)<\/percy-files>/g;
 
 const TEXT_FILE_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'json', 'js', 'cjs', 'mjs', 'ts', 'tsx', 'jsx', 'css', 'scss', 'less',
   'html', 'htm', 'xml', 'yml', 'yaml', 'csv', 'py', 'sh', 'bash', 'zsh', 'java', 'kt', 'go', 'rs',
   'rb', 'php', 'sql', 'toml', 'ini', 'conf', 'log', 'env', 'gitignore', 'dockerfile',
+]);
+const DOCLING_FILE_EXTENSIONS = new Set([
+  'pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'odt', 'ods', 'odp', 'rtf', 'epub',
 ]);
 
 let state = {
@@ -32,6 +36,8 @@ let startupLoaded = false;
 let startupErrorShown = false;
 let startupRetryTimer = null;
 let eventsConnected = false;
+let promptRequestInFlight = false;
+let eventSource = null;
 
 function getStoredTheme() {
   try {
@@ -184,12 +190,78 @@ function makeId() {
   return `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function escapeFileTagValue(text) {
-  return String(text || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+function serializeFileAttachments(attachments) {
+  return JSON.stringify(
+    attachments.map((attachment) => ({
+      kind: attachment.kind === 'document' ? 'document' : 'text',
+      name: attachment.name || 'Attachment',
+      size: Number(attachment.size) || 0,
+      mimeType: attachment.mimeType || 'text/plain',
+      parser: attachment.parser || null,
+      content: String(attachment.content || ''),
+    }))
+  )
+    .replaceAll('&', '\\u0026')
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e');
+}
+
+function normalizeParsedFileAttachment(file) {
+  if (!file || typeof file !== 'object') return null;
+
+  const kind = file.kind === 'document' ? 'document' : 'text';
+  const name = typeof file.name === 'string' && file.name.trim() ? file.name.trim() : 'Attachment';
+  const content = typeof file.content === 'string' ? file.content : '';
+
+  return {
+    kind,
+    name,
+    content,
+    parser: typeof file.parser === 'string' && file.parser ? file.parser : null,
+    size: Number(file.size) > 0 ? Number(file.size) : undefined,
+    mimeType: typeof file.mimeType === 'string' && file.mimeType ? file.mimeType : undefined,
+  };
+}
+
+function parseStructuredFileBlocks(text) {
+  const files = [];
+  const cleaned = String(text || '').replace(ATTACHMENT_BLOCK_PATTERN, (match, rawPayload) => {
+    try {
+      const payload = JSON.parse(rawPayload);
+      if (!Array.isArray(payload)) return match;
+      for (const entry of payload) {
+        const normalized = normalizeParsedFileAttachment(entry);
+        if (normalized) files.push(normalized);
+      }
+      return '';
+    } catch {
+      return match;
+    }
+  });
+
+  return { text: cleaned, files };
+}
+
+function parseLegacyFileBlocks(text) {
+  const files = [];
+  const cleaned = String(text || '').replace(/<file\s+name="([^"]*)">([\s\S]*?)<\/file>/g, (_, rawName, rawContent) => {
+    const name = rawName
+      .replaceAll('&quot;', '"')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
+
+    const content = String(rawContent || '').trim();
+    files.push({
+      name: name || 'Attachment',
+      content,
+      kind: content ? 'text' : 'file',
+    });
+
+    return '';
+  });
+
+  return { text: cleaned, files };
 }
 
 function formatBytes(bytes) {
@@ -257,27 +329,12 @@ function extractMessageParts(message) {
 }
 
 function parseFileBlocks(text) {
-  const files = [];
-  const cleaned = String(text || '').replace(/<file\s+name="([^"]*)">([\s\S]*?)<\/file>/g, (_, rawName, rawContent) => {
-    const name = rawName
-      .replaceAll('&quot;', '"')
-      .replaceAll('&lt;', '<')
-      .replaceAll('&gt;', '>')
-      .replaceAll('&amp;', '&');
-
-    const content = String(rawContent || '').trim();
-    files.push({
-      name: name || 'Attachment',
-      content,
-      kind: content ? 'text' : 'file',
-    });
-
-    return '';
-  });
+  const structured = parseStructuredFileBlocks(text);
+  const legacy = parseLegacyFileBlocks(structured.text);
 
   return {
-    text: cleaned.replace(/\n{3,}/g, '\n\n').trim(),
-    files,
+    text: legacy.text.replace(/\n{3,}/g, '\n\n').trim(),
+    files: [...structured.files, ...legacy.files],
   };
 }
 
@@ -384,6 +441,8 @@ function renderMessageBody(container, payload = {}) {
       const detailEl = document.createElement('small');
       const detailParts = [];
       if (file.kind === 'text') detailParts.push('Text attachment');
+      if (file.kind === 'document') detailParts.push('Parsed document');
+      if (file.parser) detailParts.push(`via ${file.parser}`);
       if (file.size) detailParts.push(formatBytes(file.size));
       if (file.content) detailParts.push(`${file.content.length.toLocaleString()} chars`);
       detailEl.textContent = detailParts.join(' · ') || 'Attachment';
@@ -473,8 +532,17 @@ function setStatus(text) {
 
 function updateUiState() {
   const queue = state.pendingMessageCount ? ` · queued: ${state.pendingMessageCount}` : '';
-  setStatus(state.isStreaming ? `Percy is responding${queue}` : `Ready${queue}`);
+  if (state.isStreaming) {
+    setStatus(`Percy is responding${queue}`);
+  } else if (promptRequestInFlight) {
+    setStatus('Sending…');
+  } else {
+    setStatus(`Ready${queue}`);
+  }
+
   composerAbortBtnEl.disabled = !state.isStreaming;
+  attachBtnEl.disabled = promptRequestInFlight;
+  composerNewSessionBtnEl.disabled = promptRequestInFlight;
 }
 
 function ensureLiveAssistant() {
@@ -523,6 +591,11 @@ function scheduleStartupRetry() {
   }, 2000);
 }
 
+function getFileExtension(name) {
+  const value = String(name || '');
+  return value.includes('.') ? value.split('.').pop().toLowerCase() : value.toLowerCase();
+}
+
 function isTextLikeFile(file) {
   if (!file) return false;
   if (typeof file.type === 'string' && (
@@ -538,8 +611,30 @@ function isTextLikeFile(file) {
     return true;
   }
 
-  const extension = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : file.name.toLowerCase();
-  return TEXT_FILE_EXTENSIONS.has(extension);
+  return TEXT_FILE_EXTENSIONS.has(getFileExtension(file.name));
+}
+
+function isDoclingLikeFile(file) {
+  if (!file) return false;
+
+  const mimeType = String(file.type || '').toLowerCase();
+  if (
+    mimeType.includes('pdf')
+    || mimeType.includes('word')
+    || mimeType.includes('officedocument')
+    || mimeType.includes('msword')
+    || mimeType.includes('powerpoint')
+    || mimeType.includes('presentation')
+    || mimeType.includes('excel')
+    || mimeType.includes('spreadsheet')
+    || mimeType.includes('opendocument')
+    || mimeType.includes('rtf')
+    || mimeType.includes('epub')
+  ) {
+    return true;
+  }
+
+  return DOCLING_FILE_EXTENSIONS.has(getFileExtension(file.name));
 }
 
 function readFileAsDataUrl(file) {
@@ -551,11 +646,38 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function dataUrlToBase64(dataUrl) {
+  const value = String(dataUrl || '');
+  const commaIndex = value.indexOf(',');
+  return commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
+}
+
+async function parseDocumentAttachment(file) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const response = await api('/api/parse-document', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: file.name,
+      size: file.size,
+      mimeType: file.type || 'application/octet-stream',
+      data: dataUrlToBase64(dataUrl),
+    }),
+  });
+
+  return {
+    id: makeId(),
+    kind: 'document',
+    name: file.name,
+    size: file.size,
+    mimeType: file.type || 'application/octet-stream',
+    content: String(response.content || '').trim(),
+    parser: response.engine || 'docling',
+  };
+}
+
 async function fileToAttachment(file) {
   if (file.type.startsWith('image/')) {
     const dataUrl = await readFileAsDataUrl(file);
-    const commaIndex = dataUrl.indexOf(',');
-    const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
 
     return {
       id: makeId(),
@@ -563,7 +685,7 @@ async function fileToAttachment(file) {
       name: file.name,
       size: file.size,
       mimeType: file.type || 'image/png',
-      data: base64,
+      data: dataUrlToBase64(dataUrl),
       previewUrl: dataUrl,
     };
   }
@@ -577,6 +699,10 @@ async function fileToAttachment(file) {
       mimeType: file.type || 'text/plain',
       content: await file.text(),
     };
+  }
+
+  if (isDoclingLikeFile(file)) {
+    return parseDocumentAttachment(file);
   }
 
   throw new Error(`Unsupported attachment type: ${file.name}`);
@@ -608,8 +734,16 @@ function renderPendingAttachments() {
     metaEl.appendChild(nameEl);
 
     const infoEl = document.createElement('small');
-    const info = [attachment.kind === 'image' ? 'Image' : 'Text file'];
+    const info = [
+      attachment.kind === 'image'
+        ? 'Image'
+        : attachment.kind === 'document'
+          ? 'Parsed document'
+          : 'Text file',
+    ];
+    if (attachment.parser) info.push(`via ${attachment.parser}`);
     if (attachment.size) info.push(formatBytes(attachment.size));
+    if (attachment.content && attachment.kind !== 'image') info.push(`${attachment.content.length.toLocaleString()} chars`);
     infoEl.textContent = info.join(' · ');
     metaEl.appendChild(infoEl);
 
@@ -643,6 +777,9 @@ async function addAttachments(files) {
 
   for (const file of files) {
     try {
+      if (isDoclingLikeFile(file) && !isTextLikeFile(file) && !file.type.startsWith('image/')) {
+        setStatus(`Parsing ${file.name} with Docling…`);
+      }
       nextAttachments.push(await fileToAttachment(file));
     } catch (error) {
       addMessage('system', { text: `Attachment error: ${error.message}` });
@@ -662,6 +799,7 @@ function buildPromptPayload(messageText, attachments) {
   if (text) chunks.push(text);
 
   const images = [];
+  const files = [];
 
   for (const attachment of attachments) {
     if (attachment.kind === 'image') {
@@ -670,13 +808,20 @@ function buildPromptPayload(messageText, attachments) {
         data: attachment.data,
         mimeType: attachment.mimeType,
       });
-      chunks.push(`<file name="${escapeFileTagValue(attachment.name)}"></file>`);
       continue;
     }
 
-    if (attachment.kind === 'text') {
-      chunks.push(`<file name="${escapeFileTagValue(attachment.name)}">\n${attachment.content}\n</file>`);
+    if (attachment.kind === 'text' || attachment.kind === 'document') {
+      files.push(attachment);
     }
+  }
+
+  if (files.length) {
+    chunks.push(`<percy-files>${serializeFileAttachments(files)}</percy-files>`);
+  }
+
+  if (!text && !files.length && images.length) {
+    chunks.push(`[Attached ${images.length} image${images.length === 1 ? '' : 's'}]`);
   }
 
   return {
@@ -685,18 +830,42 @@ function buildPromptPayload(messageText, attachments) {
   };
 }
 
+function parseEventPayload(event) {
+  try {
+    return JSON.parse(event.data);
+  } catch (error) {
+    console.warn('Invalid SSE payload:', error, event.data);
+    return null;
+  }
+}
+
 function connectEvents() {
+  if (eventSource) return eventSource;
+
   const es = new EventSource('/api/events');
+  eventSource = es;
+
+  es.onopen = () => {
+    if (!startupLoaded) {
+      setStatus('Connected. Loading…');
+      return;
+    }
+    updateUiState();
+  };
 
   es.addEventListener('server', async (event) => {
-    const payload = JSON.parse(event.data);
+    const payload = parseEventPayload(event);
+    if (!payload) return;
+
     if (payload.type === 'hello' && payload.state) {
       state = { ...state, ...payload.state };
       updateUiState();
       if (!startupLoaded) {
         bootstrap();
       }
+      return;
     }
+
     if (payload.type === 'new_session') {
       messagesEl.innerHTML = '';
       liveAssistantEl = null;
@@ -704,14 +873,27 @@ function connectEvents() {
       clearPendingAttachments();
       setStatus('Started a new chat');
       await loadInitialData();
+      return;
     }
+
     if (payload.type === 'rpc_exit') {
-      setStatus('Percy RPC restarted…');
+      setStatus('Percy RPC restarting…');
+      return;
+    }
+
+    if (payload.type === 'rpc_timeout') {
+      setStatus('Percy RPC timed out. Restarting…');
+      return;
+    }
+
+    if (payload.type === 'server_restarting') {
+      setStatus('Restarting Percy…');
     }
   });
 
   es.addEventListener('rpc', (event) => {
-    const payload = JSON.parse(event.data);
+    const payload = parseEventPayload(event);
+    if (!payload) return;
 
     if (payload.type === 'agent_start') {
       state.isStreaming = true;
@@ -772,6 +954,8 @@ function connectEvents() {
   es.onerror = () => {
     setStatus('Connection lost. Retrying…');
   };
+
+  return es;
 }
 
 attachBtnEl.addEventListener('click', () => {
@@ -789,6 +973,11 @@ attachmentInputEl.addEventListener('change', async (event) => {
 formEl.addEventListener('submit', async (event) => {
   event.preventDefault();
 
+  if (promptRequestInFlight) {
+    setStatus('Message already sending…');
+    return;
+  }
+
   const draftText = inputEl.value;
   const draftAttachments = [...pendingAttachments];
   const payload = buildPromptPayload(draftText, draftAttachments);
@@ -797,13 +986,15 @@ formEl.addEventListener('submit', async (event) => {
   addMessage('user', {
     text: draftText.trim(),
     images: draftAttachments.filter((item) => item.kind === 'image'),
-    files: draftAttachments.filter((item) => item.kind === 'text'),
+    files: draftAttachments.filter((item) => item.kind === 'text' || item.kind === 'document'),
   });
 
   inputEl.value = '';
   clearPendingAttachments();
   autoResizeInput();
   inputEl.focus();
+  promptRequestInFlight = true;
+  updateUiState();
 
   try {
     await api('/api/prompt', {
@@ -815,6 +1006,9 @@ formEl.addEventListener('submit', async (event) => {
     }
   } catch (error) {
     addMessage('system', { text: `Error: ${error.message}` });
+  } finally {
+    promptRequestInFlight = false;
+    updateUiState();
   }
 });
 
@@ -843,6 +1037,7 @@ async function abortResponse() {
 composerAbortBtnEl.addEventListener('click', abortResponse);
 
 composerNewSessionBtnEl.addEventListener('click', async () => {
+  if (promptRequestInFlight) return;
   if (!confirm('Start a new Percy chat session?')) return;
   try {
     await api('/api/new-session', { method: 'POST', body: '{}' });

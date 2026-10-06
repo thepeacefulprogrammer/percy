@@ -1,5 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
-cd "$(dirname "$0")"
+# shellcheck disable=SC1091
+source "$(dirname "$0")/runtime-env.sh"
+cd "$PERCY_ROOT_DIR"
 ./start.sh >/dev/null || true
-termux-open-url http://127.0.0.1:8787
+termux-open-url "$PERCY_PUBLIC_URL"

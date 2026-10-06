@@ -1,0 +1,8 @@
+{
+  "packages": [
+    "npm:pi-web-access",
+    "/data/data/com.termux/files/home/.pi/agent/npm/node_modules/@zosmaai/pi-llm-wiki-termux",
+    "npm:@ff-labs/pi-fff",
+    "npm:pi-lens"
+  ]
+}
