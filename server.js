@@ -275,7 +275,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
 
   try {
-    if (servePublicRoute(req, res, url.pathname)) return;
+    if (await servePublicRoute(req, res, url.pathname)) return;
     if (await serveSharedRoute(req, res, url.pathname)) return;
     if (await handleGetApi(req, res, url.pathname)) return;
     if (await handlePostApi(req, res, url.pathname)) return;
