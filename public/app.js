@@ -507,9 +507,7 @@ function addMessage(role, payload = {}) {
 }
 
 function renderHistory(messages) {
-  messagesEl.innerHTML = '';
-  liveAssistantEl = null;
-  liveAssistantText = '';
+  resetConversationView();
 
   for (const message of messages) {
     if (message.role === 'user' || message.role === 'assistant') {
@@ -557,6 +555,52 @@ function updateLiveAssistant(text) {
   const el = ensureLiveAssistant();
   setMessageContent(el, { text });
   scrollToBottom();
+}
+
+function resetLiveAssistant() {
+  liveAssistantEl = null;
+  liveAssistantText = '';
+}
+
+function resetConversationView() {
+  messagesEl.innerHTML = '';
+  resetLiveAssistant();
+}
+
+function setPromptRequestState(isInFlight) {
+  promptRequestInFlight = isInFlight;
+  updateUiState();
+}
+
+function focusComposer() {
+  autoResizeInput();
+  inputEl.focus();
+}
+
+async function refreshStateFromServer() {
+  try {
+    const data = await api('/api/state');
+    state = { ...state, ...data.state };
+    updateUiState();
+  } catch {}
+}
+
+function finalizeAssistantMessage(message) {
+  const { text, images } = extractMessageParts(message);
+  if (!text.trim() && !images.length) return;
+
+  liveAssistantText = text;
+  const el = liveAssistantEl || addMessage('assistant', { text, images });
+  setMessageContent(el, { text, images });
+  resetLiveAssistant();
+}
+
+function addUserDraftMessage(draftText, draftAttachments) {
+  addMessage('user', {
+    text: draftText.trim(),
+    images: draftAttachments.filter((item) => item.kind === 'image'),
+    files: draftAttachments.filter((item) => item.kind === 'text' || item.kind === 'document'),
+  });
 }
 
 async function api(url, options = {}) {
@@ -770,6 +814,10 @@ function clearPendingAttachments() {
   renderPendingAttachments();
 }
 
+function shouldShowDoclingStatus(file) {
+  return isDoclingLikeFile(file) && !isTextLikeFile(file) && !file.type.startsWith('image/');
+}
+
 async function addAttachments(files) {
   if (!files.length) return;
 
@@ -777,7 +825,7 @@ async function addAttachments(files) {
 
   for (const file of files) {
     try {
-      if (isDoclingLikeFile(file) && !isTextLikeFile(file) && !file.type.startsWith('image/')) {
+      if (shouldShowDoclingStatus(file)) {
         setStatus(`Parsing ${file.name} with Docling…`);
       }
       nextAttachments.push(await fileToAttachment(file));
@@ -839,6 +887,85 @@ function parseEventPayload(event) {
   }
 }
 
+async function handleServerEvent(payload) {
+  if (payload.type === 'hello' && payload.state) {
+    state = { ...state, ...payload.state };
+    updateUiState();
+    if (!startupLoaded) {
+      bootstrap();
+    }
+    return;
+  }
+
+  if (payload.type === 'new_session') {
+    resetConversationView();
+    clearPendingAttachments();
+    setStatus('Started a new chat');
+    await loadInitialData();
+    return;
+  }
+
+  if (payload.type === 'rpc_exit') {
+    setStatus('Percy RPC restarting…');
+    return;
+  }
+
+  if (payload.type === 'rpc_timeout') {
+    setStatus('Percy RPC timed out. Restarting…');
+    return;
+  }
+
+  if (payload.type === 'server_restarting') {
+    setStatus('Restarting Percy…');
+  }
+}
+
+function handleRpcEvent(payload) {
+  if (payload.type === 'agent_start') {
+    state.isStreaming = true;
+    updateUiState();
+    return;
+  }
+
+  if (payload.type === 'agent_settled') {
+    state.isStreaming = false;
+    resetLiveAssistant();
+    refreshStateFromServer();
+    return;
+  }
+
+  if (payload.type === 'queue_update') {
+    if (typeof payload.pendingMessageCount === 'number') {
+      state.pendingMessageCount = payload.pendingMessageCount;
+      updateUiState();
+    }
+    return;
+  }
+
+  if (payload.type === 'message_update') {
+    const delta = payload.assistantMessageEvent || {};
+    if (delta.type === 'text_delta') {
+      liveAssistantText += delta.delta || '';
+      updateLiveAssistant(liveAssistantText);
+    }
+    return;
+  }
+
+  if (payload.type === 'message_end' && payload.message?.role === 'assistant') {
+    finalizeAssistantMessage(payload.message);
+    return;
+  }
+
+  if (payload.type === 'tool_execution_start') {
+    setStatus(`Running tool: ${payload.toolName}`);
+    return;
+  }
+
+  if (payload.type === 'tool_execution_end') {
+    updateUiState();
+  }
+}
+
 function connectEvents() {
   if (eventSource) return eventSource;
 
@@ -856,99 +983,13 @@ function connectEvents() {
   es.addEventListener('server', async (event) => {
     const payload = parseEventPayload(event);
     if (!payload) return;
-
-    if (payload.type === 'hello' && payload.state) {
-      state = { ...state, ...payload.state };
-      updateUiState();
-      if (!startupLoaded) {
-        bootstrap();
-      }
-      return;
-    }
-
-    if (payload.type === 'new_session') {
-      messagesEl.innerHTML = '';
-      liveAssistantEl = null;
-      liveAssistantText = '';
-      clearPendingAttachments();
-      setStatus('Started a new chat');
-      await loadInitialData();
-      return;
-    }
-
-    if (payload.type === 'rpc_exit') {
-      setStatus('Percy RPC restarting…');
-      return;
-    }
-
-    if (payload.type === 'rpc_timeout') {
-      setStatus('Percy RPC timed out. Restarting…');
-      return;
-    }
-
-    if (payload.type === 'server_restarting') {
-      setStatus('Restarting Percy…');
-    }
+    await handleServerEvent(payload);
   });
 
   es.addEventListener('rpc', (event) => {
     const payload = parseEventPayload(event);
     if (!payload) return;
-
-    if (payload.type === 'agent_start') {
-      state.isStreaming = true;
-      updateUiState();
-      return;
-    }
-
-    if (payload.type === 'agent_settled') {
-      state.isStreaming = false;
-      liveAssistantEl = null;
-      liveAssistantText = '';
-      api('/api/state').then((data) => {
-        state = { ...state, ...data.state };
-        updateUiState();
-      }).catch(() => {});
-      return;
-    }
-
-    if (payload.type === 'queue_update') {
-      if (typeof payload.pendingMessageCount === 'number') {
-        state.pendingMessageCount = payload.pendingMessageCount;
-        updateUiState();
-      }
-      return;
-    }
-
-    if (payload.type === 'message_update') {
-      const delta = payload.assistantMessageEvent || {};
-      if (delta.type === 'text_delta') {
-        liveAssistantText += delta.delta || '';
-        updateLiveAssistant(liveAssistantText);
-      }
-      return;
-    }
-
-    if (payload.type === 'message_end' && payload.message?.role === 'assistant') {
-      const { text, images } = extractMessageParts(payload.message);
-      if (text.trim() || images.length) {
-        liveAssistantText = text;
-        const el = liveAssistantEl || addMessage('assistant', { text, images });
-        setMessageContent(el, { text, images });
-        liveAssistantEl = null;
-        liveAssistantText = '';
-      }
-      return;
-    }
-
-    if (payload.type === 'tool_execution_start') {
-      setStatus(`Running tool: ${payload.toolName}`);
-      return;
-    }
-
-    if (payload.type === 'tool_execution_end') {
-      updateUiState();
-    }
+    handleRpcEvent(payload);
   });
 
   es.onerror = () => {
@@ -966,8 +1007,7 @@ attachmentInputEl.addEventListener('change', async (event) => {
   const files = Array.from(event.target.files || []);
   await addAttachments(files);
   attachmentInputEl.value = '';
-  autoResizeInput();
-  inputEl.focus();
+  focusComposer();
 });
 
 formEl.addEventListener('submit', async (event) => {
@@ -983,18 +1023,12 @@ formEl.addEventListener('submit', async (event) => {
   const payload = buildPromptPayload(draftText, draftAttachments);
   if (!payload.message) return;
 
-  addMessage('user', {
-    text: draftText.trim(),
-    images: draftAttachments.filter((item) => item.kind === 'image'),
-    files: draftAttachments.filter((item) => item.kind === 'text' || item.kind === 'document'),
-  });
+  addUserDraftMessage(draftText, draftAttachments);
 
   inputEl.value = '';
   clearPendingAttachments();
-  autoResizeInput();
-  inputEl.focus();
-  promptRequestInFlight = true;
-  updateUiState();
+  focusComposer();
+  setPromptRequestState(true);
 
   try {
     await api('/api/prompt', {
@@ -1007,8 +1041,7 @@ formEl.addEventListener('submit', async (event) => {
   } catch (error) {
     addMessage('system', { text: `Error: ${error.message}` });
   } finally {
-    promptRequestInFlight = false;
-    updateUiState();
+    setPromptRequestState(false);
   }
 });
 
@@ -1050,6 +1083,12 @@ themeToggleBtnEl.addEventListener('click', toggleTheme);
 
 applyTheme(getStoredTheme(), { persist: false });
 
+function ensureEventConnection() {
+  if (eventsConnected) return;
+  connectEvents();
+  eventsConnected = true;
+}
+
 async function bootstrap() {
   try {
     await loadInitialData();
@@ -1063,12 +1102,8 @@ async function bootstrap() {
     scheduleStartupRetry();
   } finally {
     updateUiState();
-    if (!eventsConnected) {
-      connectEvents();
-      eventsConnected = true;
-    }
-    autoResizeInput();
-    inputEl.focus();
+    ensureEventConnection();
+    focusComposer();
     registerServiceWorker();
   }
 }
