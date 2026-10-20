@@ -1,4 +1,5 @@
 .run/
+tmp/
 .DS_Store
 *.log
 scripts/__pycache__/

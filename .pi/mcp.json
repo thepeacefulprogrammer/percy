@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "rea": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/data/data/com.termux/files/home/projects/rea/scripts/rea.mjs",
+        "mcp"
+      ],
+      "cwd": "/data/data/com.termux/files/home/projects/rea",
+      "exposure": "deferred",
+      "toolExposure": {
+        "open_binary": "direct",
+        "close_binary": "direct",
+        "binary_session": "direct",
+        "analyze_javascript_application": "direct",
+        "inspect_android_package": "direct",
+        "inspect_managed_artifact": "direct",
+        "inspect_web_network_capture": "direct",
+        "list_browser_targets": "direct",
+        "capture_browser_scenario": "direct"
+      },
+      "timeout": 180,
+      "description": "Reverse engineering tools for binaries, apps, websites, captures, and runtime behavior."
+    }
+  }
+}

@@ -35,6 +35,35 @@ cd ~/pi-web-chat
 ./status.sh
 ```
 
+## Local test models
+
+This repo includes helper scripts for two local llama.cpp-backed test models.
+They now default to a `32768` token context window so they can handle Pi Web Chat's large system prompt/tool list:
+
+### Existing RP test model
+
+```bash
+cd ~/pi-web-chat
+./start-local-rp-model.sh
+./status-local-rp-model.sh
+./stop-local-rp-model.sh
+```
+
+### Qwen2.5 Coder 0.5B test model
+
+```bash
+cd ~/pi-web-chat
+./start-local-qwen-coder-model.sh
+./status-local-qwen-coder-model.sh
+./stop-local-qwen-coder-model.sh
+```
+
+When the Qwen helper is running, Pi exposes it through `~/.pi/agent/models.json` as:
+
+- provider: `local-qwen`
+- model id: `qwen2.5-coder-0.5b-local`
+- label in the web UI: `Local Qwen2.5 Coder 0.5B (Q4_K_M)`
+
 ## Notes
 
 - This uses a dedicated Pi RPC session named `Web Chat`.
