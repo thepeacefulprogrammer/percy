@@ -104,14 +104,21 @@ export function renderMarkdown(text) {
 
 export function serializeFileAttachments(attachments) {
   return JSON.stringify(
-    attachments.map((attachment) => ({
-      kind: attachment.kind === 'document' ? 'document' : 'text',
-      name: attachment.name || 'Attachment',
-      size: Number(attachment.size) || 0,
-      mimeType: attachment.mimeType || 'text/plain',
-      parser: attachment.parser || null,
-      content: String(attachment.content || ''),
-    }))
+    attachments.map((attachment) => {
+      const kind = ['text', 'document', 'audio', 'video', 'file'].includes(attachment?.kind)
+        ? attachment.kind
+        : 'file';
+
+      return {
+        kind,
+        name: attachment?.name || 'Attachment',
+        size: Number(attachment?.size) || 0,
+        mimeType: attachment?.mimeType || (kind === 'text' ? 'text/plain' : 'application/octet-stream'),
+        parser: attachment?.parser || null,
+        content: kind === 'text' || kind === 'document' ? String(attachment?.content || '') : '',
+        path: typeof attachment?.path === 'string' && attachment.path ? attachment.path : null,
+      };
+    })
   )
     .replaceAll('&', '\\u0026')
     .replaceAll('<', '\\u003c')
@@ -121,14 +128,18 @@ export function serializeFileAttachments(attachments) {
 function normalizeParsedFileAttachment(file) {
   if (!file || typeof file !== 'object') return null;
 
-  const kind = file.kind === 'document' ? 'document' : 'text';
+  const kind = ['text', 'document', 'audio', 'video', 'file'].includes(file.kind)
+    ? file.kind
+    : 'file';
   const name = typeof file.name === 'string' && file.name.trim() ? file.name.trim() : 'Attachment';
   const content = typeof file.content === 'string' ? file.content : '';
+  const path = typeof file.path === 'string' && file.path.trim() ? file.path.trim() : null;
 
   return {
     kind,
     name,
     content,
+    path,
     parser: typeof file.parser === 'string' && file.parser ? file.parser : null,
     size: Number(file.size) > 0 ? Number(file.size) : undefined,
     mimeType: typeof file.mimeType === 'string' && file.mimeType ? file.mimeType : undefined,
@@ -174,6 +185,95 @@ function parseLegacyFileBlocks(text) {
   });
 
   return { text: cleaned, files };
+}
+
+function inferAttachmentKindFromName(name) {
+  const extension = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(extension)) return 'video';
+  if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus'].includes(extension)) return 'audio';
+  if (['txt', 'md', 'markdown', 'json', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'css', 'html', 'xml', 'yml', 'yaml', 'csv', 'py', 'sh', 'java', 'kt', 'go', 'rs', 'rb', 'php', 'sql'].includes(extension)) return 'text';
+  if (['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'odt', 'ods', 'odp', 'rtf', 'epub'].includes(extension)) return 'document';
+  return 'file';
+}
+
+function inferMimeTypeFromName(name) {
+  switch (String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '') {
+    case 'mp4':
+    case 'm4v':
+      return 'video/mp4';
+    case 'mov':
+      return 'video/quicktime';
+    case 'webm':
+      return 'video/webm';
+    case 'mkv':
+      return 'video/x-matroska';
+    case 'avi':
+      return 'video/x-msvideo';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'wav':
+      return 'audio/wav';
+    case 'm4a':
+      return 'audio/mp4';
+    case 'aac':
+      return 'audio/aac';
+    case 'ogg':
+    case 'oga':
+      return 'audio/ogg';
+    case 'flac':
+      return 'audio/flac';
+    case 'opus':
+      return 'audio/opus';
+    default:
+      return undefined;
+  }
+}
+
+function parsePathLikeFileReferences(text) {
+  const files = [];
+  const seen = new Set();
+  const cleanedLines = String(text || '')
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^\s*File:\s*(`?)(.+?)\1\s*$/i)
+        || line.match(/^\s*Path:\s*(`?)(.+?)\1\s*$/i)
+        || line.match(/^\s*(`?)(shared\/[A-Za-z0-9._()\-\/ ]+)\1\s*$/i)
+        || line.match(/^\s*(`?)(\/data\/data\/com\.termux\/files\/home\/[^\s`]+)\1\s*$/i);
+
+      if (!match) return line;
+
+      const rawValue = String(match[2] || '').trim();
+      if (!rawValue) return line;
+
+      const normalizedValue = rawValue.replace(/^\.\//, '');
+      const isRelativeShared = normalizedValue.startsWith('shared/') && !normalizedValue.includes('..');
+      const isAbsoluteShared = /\/shared\//.test(normalizedValue) && !normalizedValue.includes('/../');
+      const isAbsoluteUpload = /\/\.local\/share\/pi-web-chat\/uploads\//.test(normalizedValue) && !normalizedValue.includes('/../');
+
+      if (!isRelativeShared && !isAbsoluteShared && !isAbsoluteUpload) return line;
+
+      const previewUrl = isRelativeShared
+        ? `/${normalizedValue.split('/').map(encodeURIComponent).join('/')}`
+        : `/api/file?path=${encodeURIComponent(normalizedValue)}`;
+      const name = normalizedValue.split('/').filter(Boolean).at(-1) || 'Attachment';
+      const key = `${name}|${previewUrl}`;
+      if (seen.has(key)) return '';
+      seen.add(key);
+
+      files.push({
+        kind: inferAttachmentKindFromName(name),
+        name,
+        path: isRelativeShared ? normalizedValue : normalizedValue,
+        previewUrl,
+        mimeType: inferMimeTypeFromName(name),
+      });
+      return '';
+    });
+
+  return {
+    text: cleanedLines.join('\n'),
+    files,
+  };
 }
 
 export function formatBytes(bytes) {
@@ -243,9 +343,10 @@ export function extractMessageParts(message) {
 export function parseFileBlocks(text) {
   const structured = parseStructuredFileBlocks(text);
   const legacy = parseLegacyFileBlocks(structured.text);
+  const pathLike = parsePathLikeFileReferences(legacy.text);
 
   return {
-    text: legacy.text.replace(/\n{3,}/g, '\n\n').trim(),
-    files: [...structured.files, ...legacy.files],
+    text: pathLike.text.replace(/\n{3,}/g, '\n\n').trim(),
+    files: [...structured.files, ...legacy.files, ...pathLike.files],
   };
 }

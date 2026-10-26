@@ -10,7 +10,7 @@
     <title>PERCY</title>
     <link rel="manifest" href="/manifest.webmanifest?v=3">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-    <link rel="stylesheet" href="/style.css?v=4">
+    <link rel="stylesheet" href="/style.css?v=5">
   </head>
   <body>
     <main class="app-shell">
@@ -26,7 +26,7 @@
 
       <form id="chatForm" class="composer">
         <textarea id="messageInput" rows="3" placeholder="Type a message…"></textarea>
-        <input id="attachmentInput" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.js,.cjs,.mjs,.ts,.tsx,.jsx,.css,.html,.xml,.yml,.yaml,.csv,.py,.sh,.java,.kt,.go,.rs,.rb,.php,.sql,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.odt,.ods,.odp,.rtf,.epub" hidden>
+        <input id="attachmentInput" type="file" multiple hidden>
         <div id="attachmentList" class="attachment-list" aria-live="polite"></div>
         <div class="composer-actions">
           <div class="composer-actions-left">
@@ -39,6 +39,6 @@
       </form>
     </main>
 
-    <script type="module" src="/app.js?v=9"></script>
+    <script type="module" src="/app.js?v=12"></script>
   </body>
 </html>

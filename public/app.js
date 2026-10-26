@@ -4,11 +4,11 @@ import {
   parseFileBlocks,
   renderMarkdown,
   serializeFileAttachments,
-} from './js/message-format.js';
+} from './js/message-format.js?v=3';
 import {
   fileToAttachment,
   shouldShowDoclingStatus,
-} from './js/attachment-utils.js';
+} from './js/attachment-utils.js?v=2';
 
 const messagesEl = document.getElementById('messages');
 const statusBarEl = document.getElementById('statusBar');
@@ -101,6 +101,67 @@ function makeId() {
   return `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function getAttachmentKindLabel(attachment) {
+  switch (attachment?.kind) {
+    case 'image':
+      return 'Image';
+    case 'document':
+      return 'Parsed document';
+    case 'text':
+      return 'Text file';
+    case 'audio':
+      return 'Audio file';
+    case 'video':
+      return 'Video file';
+    default:
+      return 'Shared file';
+  }
+}
+
+function getAttachmentInfoParts(attachment) {
+  const info = [getAttachmentKindLabel(attachment)];
+  if (attachment?.parser) info.push(`via ${attachment.parser}`);
+  if (attachment?.size) info.push(formatBytes(attachment.size));
+  if (attachment?.content && attachment.kind !== 'image') {
+    info.push(`${attachment.content.length.toLocaleString()} chars`);
+  }
+  if (attachment?.path) info.push('Saved locally');
+  return info;
+}
+
+function getAttachmentExtension(name) {
+  const match = /\.([a-z0-9]+)$/i.exec(String(name || ''));
+  return match ? match[1].toLowerCase() : '';
+}
+
+function getSharedFileUrl(file) {
+  if (typeof file?.previewUrl === 'string' && file.previewUrl) return file.previewUrl;
+  if (typeof file?.path !== 'string' || !file.path) return '';
+  return `/api/file?path=${encodeURIComponent(file.path)}`;
+}
+
+function isVideoAttachment(file) {
+  const mimeType = String(file?.mimeType || '').toLowerCase();
+  const extension = getAttachmentExtension(file?.name);
+  return file?.kind === 'video'
+    || mimeType.startsWith('video/')
+    || ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(extension);
+}
+
+function isAudioAttachment(file) {
+  const mimeType = String(file?.mimeType || '').toLowerCase();
+  const extension = getAttachmentExtension(file?.name);
+  return file?.kind === 'audio'
+    || mimeType.startsWith('audio/')
+    || ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus'].includes(extension);
+}
+
+function getAttachmentActionLabel(file) {
+  if (isVideoAttachment(file)) return 'Watch';
+  if (isAudioAttachment(file)) return 'Listen';
+  return 'Open';
+}
+
 function scrollToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -185,7 +246,7 @@ function renderMessageBody(container, payload = {}) {
   }
 
   const visibleFiles = Array.isArray(payload.files)
-    ? payload.files.filter((file) => file && (file.kind === 'text' || file.content))
+    ? payload.files.filter((file) => file && (file.kind === 'text' || file.content || file.path))
     : [];
 
   if (visibleFiles.length) {
@@ -196,20 +257,59 @@ function renderMessageBody(container, payload = {}) {
       const chipEl = document.createElement('div');
       chipEl.className = 'file-chip';
 
+      const sharedUrl = getSharedFileUrl(file);
+      if (sharedUrl && (isVideoAttachment(file) || isAudioAttachment(file))) {
+        chipEl.classList.add('file-chip--stacked');
+        const mediaEl = document.createElement(isVideoAttachment(file) ? 'video' : 'audio');
+        mediaEl.className = 'file-chip-media';
+        mediaEl.controls = true;
+        mediaEl.preload = 'metadata';
+        if (mediaEl.tagName === 'VIDEO') {
+          mediaEl.playsInline = true;
+        }
+        mediaEl.src = sharedUrl;
+        chipEl.appendChild(mediaEl);
+      }
+
       const metaEl = document.createElement('div');
+      metaEl.className = 'file-chip-content';
       const nameEl = document.createElement('strong');
       nameEl.textContent = file.name || 'Attachment';
       metaEl.appendChild(nameEl);
 
       const detailEl = document.createElement('small');
-      const detailParts = [];
-      if (file.kind === 'text') detailParts.push('Text attachment');
-      if (file.kind === 'document') detailParts.push('Parsed document');
-      if (file.parser) detailParts.push(`via ${file.parser}`);
-      if (file.size) detailParts.push(formatBytes(file.size));
-      if (file.content) detailParts.push(`${file.content.length.toLocaleString()} chars`);
-      detailEl.textContent = detailParts.join(' · ') || 'Attachment';
+      detailEl.textContent = getAttachmentInfoParts(file).join(' · ') || 'Attachment';
       metaEl.appendChild(detailEl);
+
+      if (sharedUrl) {
+        const actionsEl = document.createElement('div');
+        actionsEl.className = 'file-chip-actions';
+
+        const openEl = document.createElement('a');
+        openEl.className = 'file-chip-link';
+        openEl.href = sharedUrl;
+        openEl.target = '_blank';
+        openEl.rel = 'noopener noreferrer';
+        openEl.textContent = getAttachmentActionLabel(file);
+        actionsEl.appendChild(openEl);
+
+        const downloadEl = document.createElement('a');
+        downloadEl.className = 'file-chip-link';
+        downloadEl.href = sharedUrl;
+        downloadEl.download = file.name || 'attachment';
+        downloadEl.textContent = 'Download';
+        actionsEl.appendChild(downloadEl);
+
+        metaEl.appendChild(actionsEl);
+      }
+
+      if (file.path) {
+        const pathEl = document.createElement('small');
+        pathEl.textContent = file.path;
+        pathEl.title = file.path;
+        pathEl.style.wordBreak = 'break-all';
+        metaEl.appendChild(pathEl);
+      }
 
       chipEl.appendChild(metaEl);
       filesEl.appendChild(chipEl);
@@ -350,11 +450,20 @@ async function refreshStateFromServer() {
 
 function finalizeAssistantMessage(message) {
   const { text, images } = extractMessageParts(message);
-  if (!text.trim() && !images.length) return;
+  const parsed = parseFileBlocks(text);
+  if (!parsed.text.trim() && !images.length && !parsed.files.length) return;
 
-  liveAssistantText = text;
-  const el = liveAssistantEl || addMessage('assistant', { text, images });
-  setMessageContent(el, { text, images });
+  liveAssistantText = parsed.text;
+  const el = liveAssistantEl || addMessage('assistant', {
+    text: parsed.text,
+    images,
+    files: parsed.files,
+  });
+  setMessageContent(el, {
+    text: parsed.text,
+    images,
+    files: parsed.files,
+  });
   resetLiveAssistant();
 }
 
@@ -362,7 +471,7 @@ function addUserDraftMessage(draftText, draftAttachments) {
   addMessage('user', {
     text: draftText.trim(),
     images: draftAttachments.filter((item) => item.kind === 'image'),
-    files: draftAttachments.filter((item) => item.kind === 'text' || item.kind === 'document'),
+    files: draftAttachments.filter((item) => item.kind !== 'image'),
   });
 }
 
@@ -424,18 +533,16 @@ function renderPendingAttachments() {
     metaEl.appendChild(nameEl);
 
     const infoEl = document.createElement('small');
-    const info = [
-      attachment.kind === 'image'
-        ? 'Image'
-        : attachment.kind === 'document'
-          ? 'Parsed document'
-          : 'Text file',
-    ];
-    if (attachment.parser) info.push(`via ${attachment.parser}`);
-    if (attachment.size) info.push(formatBytes(attachment.size));
-    if (attachment.content && attachment.kind !== 'image') info.push(`${attachment.content.length.toLocaleString()} chars`);
-    infoEl.textContent = info.join(' · ');
+    infoEl.textContent = getAttachmentInfoParts(attachment).join(' · ');
     metaEl.appendChild(infoEl);
+
+    if (attachment.path) {
+      const pathEl = document.createElement('small');
+      pathEl.textContent = attachment.path;
+      pathEl.title = attachment.path;
+      pathEl.style.wordBreak = 'break-all';
+      metaEl.appendChild(pathEl);
+    }
 
     leftEl.appendChild(metaEl);
     chipEl.appendChild(leftEl);
@@ -501,9 +608,7 @@ function buildPromptPayload(messageText, attachments) {
       continue;
     }
 
-    if (attachment.kind === 'text' || attachment.kind === 'document') {
-      files.push(attachment);
-    }
+    files.push(attachment);
   }
 
   if (files.length) {

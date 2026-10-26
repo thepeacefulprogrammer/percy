@@ -3,6 +3,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const { createRpcManager } = require('./lib/rpc-manager');
 const { createDocumentParser } = require('./lib/document-parser');
@@ -16,9 +17,12 @@ const SHARED_DIR = path.join(ROOT, 'shared');
 const DATA_DIR = path.join(os.homedir(), '.local', 'share', 'pi-web-chat');
 const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 const TMP_DIR = path.join(DATA_DIR, 'tmp');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const DOCLING_SCRIPT = path.join(ROOT, 'scripts', 'parse_with_docling.py');
 const DOCLING_PARSE_MAX_BYTES = 20 * 1024 * 1024;
 const DOCLING_REQUEST_MAX_BYTES = 30 * 1024 * 1024;
+const FILE_UPLOAD_MAX_BYTES = 45 * 1024 * 1024;
+const FILE_UPLOAD_REQUEST_MAX_BYTES = 60 * 1024 * 1024;
 const DEFAULT_RPC_TIMEOUT_MS = Number(process.env.PERCY_RPC_TIMEOUT_MS || 30000) > 0
   ? Number(process.env.PERCY_RPC_TIMEOUT_MS || 30000)
   : 30000;
@@ -29,6 +33,11 @@ const WEB_CHAT_APPEND_SYSTEM_PROMPT = [
   'When the user asks you to inspect files, run commands, edit code, or validate behavior, do those actions yourself with the available tools.',
   'Do not tell the user to run commands, inspect files, or paste outputs when you can obtain that information directly with the available tools.',
   'Continue working until the task is complete or you are blocked by missing permissions, credentials, confirmation for a destructive action, or unavailable tools.',
+  'User attachments may appear in <percy-files>...</percy-files> JSON blocks.',
+  'Entries with a content field contain inline text extracted from the uploaded file.',
+  'Entries with a path field are real local files already saved on disk; use your available tools on that path when useful.',
+  'Audio, video, and other binary uploads may be attached as local file paths instead of inline text.',
+  'If you create a file the user should open or watch, save it under the shared folder when practical and include it in a <percy-files> block with kind, name, mimeType, size, and absolute path.',
 ].join('\n');
 const PUBLIC_FILE_ROUTES = new Map([
   ['/', { filePath: path.join(PUBLIC_DIR, 'index.html'), contentType: 'text/html' }],
@@ -45,6 +54,7 @@ fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 fs.mkdirSync(SHARED_DIR, { recursive: true });
 fs.mkdirSync(SESSION_DIR, { recursive: true });
 fs.mkdirSync(TMP_DIR, { recursive: true });
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const sseClients = new Set();
 
@@ -94,7 +104,7 @@ function json(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
-const { servePublicRoute, serveSharedRoute } = createHttpHelpers({
+const { serveAbsoluteFile, servePublicRoute, serveSharedRoute } = createHttpHelpers({
   fsp,
   publicDir: PUBLIC_DIR,
   sharedDir: SHARED_DIR,
@@ -141,6 +151,66 @@ function readBody(req, options = {}) {
   });
 }
 
+function sanitizeUploadName(name) {
+  const base = path.basename(String(name || 'upload.bin')).trim();
+  const cleaned = base.replace(/[^a-zA-Z0-9._() -]+/g, '_').replace(/\s+/g, ' ');
+  return cleaned || 'upload.bin';
+}
+
+function decodeBase64Payload(data, label = 'File data') {
+  const value = String(data || '').trim();
+  if (!value) {
+    throw new Error(`${label} is required`);
+  }
+
+  const buffer = Buffer.from(value, 'base64');
+  if (!buffer.length) {
+    throw new Error(`Invalid ${label.toLowerCase()}`);
+  }
+
+  return buffer;
+}
+
+function classifyUploadedAttachment(body = {}) {
+  const mimeType = String(body.mimeType || '').toLowerCase();
+  const extension = path.extname(String(body.name || '')).toLowerCase();
+
+  if (mimeType.startsWith('audio/') || ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.oga', '.flac', '.opus'].includes(extension)) {
+    return 'audio';
+  }
+
+  if (mimeType.startsWith('video/') || ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.m4v'].includes(extension)) {
+    return 'video';
+  }
+
+  return 'file';
+}
+
+async function saveUploadedFile(body) {
+  const name = sanitizeUploadName(body.name || 'upload.bin');
+  const mimeType = typeof body.mimeType === 'string' && body.mimeType.trim()
+    ? body.mimeType.trim()
+    : 'application/octet-stream';
+  const buffer = decodeBase64Payload(body.data, 'File data');
+
+  if (buffer.length > FILE_UPLOAD_MAX_BYTES) {
+    throw new Error(`File is too large (max ${Math.round(FILE_UPLOAD_MAX_BYTES / (1024 * 1024))} MB)`);
+  }
+
+  const storedName = `${Date.now()}-${crypto.randomUUID()}-${name}`;
+  const filePath = path.join(UPLOADS_DIR, storedName);
+
+  await fsp.writeFile(filePath, buffer, { flag: 'wx' });
+
+  return {
+    kind: classifyUploadedAttachment({ name, mimeType }),
+    name,
+    size: buffer.length,
+    mimeType,
+    path: filePath,
+  };
+}
+
 function handleEvents(req, res) {
   if (req.method !== 'GET') return false;
 
@@ -182,8 +252,34 @@ function buildPromptCommand(body) {
   return command;
 }
 
-async function handleGetApi(req, res, pathname) {
-  if (req.method !== 'GET') return false;
+function isPathInside(rootPath, candidatePath) {
+  const resolvedRoot = path.resolve(rootPath);
+  const resolvedCandidate = path.resolve(candidatePath);
+  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
+}
+
+async function handleGetApi(req, res, url) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+
+  const { pathname } = url;
+
+  if (pathname === '/api/file') {
+    const requestedPath = url.searchParams.get('path');
+    if (!requestedPath) {
+      json(res, 400, { ok: false, error: 'File path is required' });
+      return true;
+    }
+
+    const resolvedPath = path.resolve(requestedPath);
+    const isShareable = isPathInside(UPLOADS_DIR, resolvedPath) || isPathInside(SHARED_DIR, resolvedPath);
+    if (!isShareable) {
+      json(res, 403, { ok: false, error: 'File path is not shareable' });
+      return true;
+    }
+
+    await serveAbsoluteFile(req, res, resolvedPath);
+    return true;
+  }
 
   if (pathname === '/api/events') {
     return handleEvents(req, res);
@@ -227,6 +323,13 @@ async function handlePostApi(req, res, pathname) {
       engine: result.engine || 'docling',
       content: result.content,
     });
+    return true;
+  }
+
+  if (pathname === '/api/upload-file') {
+    const body = await readBody(req, { maxBytes: FILE_UPLOAD_REQUEST_MAX_BYTES });
+    const attachment = await saveUploadedFile(body);
+    json(res, 200, { ok: true, attachment });
     return true;
   }
 
@@ -277,7 +380,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (await servePublicRoute(req, res, url.pathname)) return;
     if (await serveSharedRoute(req, res, url.pathname)) return;
-    if (await handleGetApi(req, res, url.pathname)) return;
+    if (await handleGetApi(req, res, url)) return;
     if (await handlePostApi(req, res, url.pathname)) return;
 
     json(res, 404, { error: 'Not found' });

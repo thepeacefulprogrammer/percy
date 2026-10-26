@@ -8,6 +8,14 @@ const DOCLING_FILE_EXTENSIONS = new Set([
   'pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'odt', 'ods', 'odp', 'rtf', 'epub',
 ]);
 
+const AUDIO_FILE_EXTENSIONS = new Set([
+  'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'mpga', 'weba',
+]);
+
+const VIDEO_FILE_EXTENSIONS = new Set([
+  'mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v', 'mpeg', 'mpg', 'ogv', 'wmv',
+]);
+
 function getFileExtension(name) {
   const value = String(name || '');
   return value.includes('.') ? value.split('.').pop().toLowerCase() : value.toLowerCase();
@@ -73,6 +81,48 @@ function dataUrlToBase64(dataUrl) {
   return commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
 }
 
+function classifyOpaqueAttachment(file) {
+  const mimeType = String(file?.type || '').toLowerCase();
+  const extension = getFileExtension(file?.name);
+
+  if (mimeType.startsWith('audio/') || AUDIO_FILE_EXTENSIONS.has(extension)) {
+    return 'audio';
+  }
+
+  if (mimeType.startsWith('video/') || VIDEO_FILE_EXTENSIONS.has(extension)) {
+    return 'video';
+  }
+
+  return 'file';
+}
+
+async function uploadOpaqueAttachment(file, api, makeId) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const response = await api('/api/upload-file', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: file.name,
+      size: file.size,
+      mimeType: file.type || 'application/octet-stream',
+      data: dataUrlToBase64(dataUrl),
+    }),
+  });
+
+  const uploaded = response.attachment || {};
+  if (typeof uploaded.path !== 'string' || !uploaded.path) {
+    throw new Error(`Upload failed for ${file.name}`);
+  }
+
+  return {
+    id: makeId(),
+    kind: uploaded.kind || classifyOpaqueAttachment(file),
+    name: uploaded.name || file.name,
+    size: Number(uploaded.size) || file.size,
+    mimeType: uploaded.mimeType || file.type || 'application/octet-stream',
+    path: uploaded.path,
+  };
+}
+
 async function parseDocumentAttachment(file, api, makeId) {
   const dataUrl = await readFileAsDataUrl(file);
   const response = await api('/api/parse-document', {
@@ -126,5 +176,5 @@ export async function fileToAttachment(file, api, makeId) {
     return parseDocumentAttachment(file, api, makeId);
   }
 
-  throw new Error(`Unsupported attachment type: ${file.name}`);
+  return uploadOpaqueAttachment(file, api, makeId);
 }
