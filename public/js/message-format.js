@@ -105,7 +105,7 @@ export function renderMarkdown(text) {
 export function serializeFileAttachments(attachments) {
   return JSON.stringify(
     attachments.map((attachment) => {
-      const kind = ['text', 'document', 'audio', 'video', 'file'].includes(attachment?.kind)
+      const kind = ['image', 'text', 'document', 'audio', 'video', 'file'].includes(attachment?.kind)
         ? attachment.kind
         : 'file';
 
@@ -116,7 +116,13 @@ export function serializeFileAttachments(attachments) {
         mimeType: attachment?.mimeType || (kind === 'text' ? 'text/plain' : 'application/octet-stream'),
         parser: attachment?.parser || null,
         content: kind === 'text' || kind === 'document' ? String(attachment?.content || '') : '',
-        path: typeof attachment?.path === 'string' && attachment.path ? attachment.path : null,
+        path: typeof attachment?.path === 'string' && attachment.path
+          ? attachment.path
+          : typeof attachment?.absolutePath === 'string' && attachment.absolutePath
+            ? attachment.absolutePath
+            : typeof attachment?.absolute_path === 'string' && attachment.absolute_path
+              ? attachment.absolute_path
+              : null,
       };
     })
   )
@@ -128,12 +134,18 @@ export function serializeFileAttachments(attachments) {
 function normalizeParsedFileAttachment(file) {
   if (!file || typeof file !== 'object') return null;
 
-  const kind = ['text', 'document', 'audio', 'video', 'file'].includes(file.kind)
+  const kind = ['image', 'text', 'document', 'audio', 'video', 'file'].includes(file.kind)
     ? file.kind
     : 'file';
   const name = typeof file.name === 'string' && file.name.trim() ? file.name.trim() : 'Attachment';
   const content = typeof file.content === 'string' ? file.content : '';
-  const path = typeof file.path === 'string' && file.path.trim() ? file.path.trim() : null;
+  const path = typeof file.path === 'string' && file.path.trim()
+    ? file.path.trim()
+    : typeof file.absolutePath === 'string' && file.absolutePath.trim()
+      ? file.absolutePath.trim()
+      : typeof file.absolute_path === 'string' && file.absolute_path.trim()
+        ? file.absolute_path.trim()
+        : null;
 
   return {
     kind,
@@ -189,6 +201,7 @@ function parseLegacyFileBlocks(text) {
 
 function inferAttachmentKindFromName(name) {
   const extension = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) return 'image';
   if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(extension)) return 'video';
   if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus'].includes(extension)) return 'audio';
   if (['txt', 'md', 'markdown', 'json', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'css', 'html', 'xml', 'yml', 'yaml', 'csv', 'py', 'sh', 'java', 'kt', 'go', 'rs', 'rb', 'php', 'sql'].includes(extension)) return 'text';
@@ -198,6 +211,19 @@ function inferAttachmentKindFromName(name) {
 
 function inferMimeTypeFromName(name) {
   switch (String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '') {
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'bmp':
+      return 'image/bmp';
+    case 'svg':
+      return 'image/svg+xml';
     case 'mp4':
     case 'm4v':
       return 'video/mp4';

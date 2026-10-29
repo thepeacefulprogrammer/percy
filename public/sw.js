@@ -1,8 +1,8 @@
-const CACHE_NAME = 'percy-web-chat-v8';
+const CACHE_NAME = 'percy-web-chat-v12';
 const APP_SHELL = [
   '/',
-  '/app.js?v=12',
-  '/js/message-format.js?v=3',
+  '/app.js?v=15',
+  '/js/message-format.js?v=5',
   '/js/attachment-utils.js?v=2',
   '/style.css?v=5',
   '/manifest.webmanifest?v=3',

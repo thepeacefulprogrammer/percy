@@ -37,7 +37,7 @@ const WEB_CHAT_APPEND_SYSTEM_PROMPT = [
   'Entries with a content field contain inline text extracted from the uploaded file.',
   'Entries with a path field are real local files already saved on disk; use your available tools on that path when useful.',
   'Audio, video, and other binary uploads may be attached as local file paths instead of inline text.',
-  'If you create a file the user should open or watch, save it under the shared folder when practical and include it in a <percy-files> block with kind, name, mimeType, size, and absolute path.',
+  'If you create a file the user should open, watch, or view, save it under the shared folder when practical and include it in a <percy-files> block with kind, name, mimeType, size, and path (an absolute local path).',
 ].join('\n');
 const PUBLIC_FILE_ROUTES = new Map([
   ['/', { filePath: path.join(PUBLIC_DIR, 'index.html'), contentType: 'text/html' }],

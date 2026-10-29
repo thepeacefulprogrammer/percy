@@ -4,7 +4,7 @@ import {
   parseFileBlocks,
   renderMarkdown,
   serializeFileAttachments,
-} from './js/message-format.js?v=3';
+} from './js/message-format.js?v=5';
 import {
   fileToAttachment,
   shouldShowDoclingStatus,
@@ -20,6 +20,10 @@ const attachBtnEl = document.getElementById('attachBtn');
 const composerAbortBtnEl = document.getElementById('composerAbortBtn');
 const composerNewSessionBtnEl = document.getElementById('composerNewSessionBtn');
 const themeToggleBtnEl = document.getElementById('themeToggleBtn');
+
+let imageLightboxEl = null;
+let imageLightboxImgEl = null;
+let imageLightboxCloseEl = null;
 
 const THEME_STORAGE_KEY = 'percy-web-chat-theme';
 const THEMES = ['percy', 'c64', 'modern', 'futuristic'];
@@ -96,6 +100,67 @@ async function registerServiceWorker() {
   }
 }
 
+function closeImageLightbox() {
+  if (!imageLightboxEl || !imageLightboxImgEl) return;
+  imageLightboxEl.hidden = true;
+  imageLightboxImgEl.removeAttribute('src');
+  imageLightboxImgEl.alt = '';
+  document.body.style.overflow = '';
+}
+
+function openImageLightbox(src, alt = 'Expanded image') {
+  if (!imageLightboxEl || !imageLightboxImgEl || !src) return;
+  imageLightboxImgEl.src = src;
+  imageLightboxImgEl.alt = alt;
+  imageLightboxEl.hidden = false;
+  document.body.style.overflow = 'hidden';
+  imageLightboxCloseEl?.focus();
+}
+
+function attachImageLightbox(targetEl, src, alt) {
+  if (!targetEl || !src) return;
+  targetEl.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openImageLightbox(src, alt);
+  });
+}
+
+function initializeImageLightbox() {
+  if (imageLightboxEl) return;
+
+  imageLightboxEl = document.createElement('div');
+  imageLightboxEl.className = 'image-lightbox';
+  imageLightboxEl.hidden = true;
+
+  imageLightboxCloseEl = document.createElement('button');
+  imageLightboxCloseEl.className = 'image-lightbox-close';
+  imageLightboxCloseEl.type = 'button';
+  imageLightboxCloseEl.textContent = '×';
+  imageLightboxCloseEl.title = 'Close image';
+  imageLightboxCloseEl.setAttribute('aria-label', 'Close image');
+  imageLightboxCloseEl.addEventListener('click', closeImageLightbox);
+
+  imageLightboxImgEl = document.createElement('img');
+  imageLightboxImgEl.alt = '';
+
+  imageLightboxEl.addEventListener('click', (event) => {
+    if (event.target === imageLightboxEl) {
+      closeImageLightbox();
+    }
+  });
+
+  imageLightboxEl.appendChild(imageLightboxCloseEl);
+  imageLightboxEl.appendChild(imageLightboxImgEl);
+  document.body.appendChild(imageLightboxEl);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && imageLightboxEl && !imageLightboxEl.hidden) {
+      closeImageLightbox();
+    }
+  });
+}
+
 function makeId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -154,6 +219,14 @@ function isAudioAttachment(file) {
   return file?.kind === 'audio'
     || mimeType.startsWith('audio/')
     || ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus'].includes(extension);
+}
+
+function isImageAttachment(file) {
+  const mimeType = String(file?.mimeType || '').toLowerCase();
+  const extension = getAttachmentExtension(file?.name);
+  return file?.kind === 'image'
+    || mimeType.startsWith('image/')
+    || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(extension);
 }
 
 function getAttachmentActionLabel(file) {
@@ -224,30 +297,67 @@ function renderMessageBody(container, payload = {}) {
   const bodyEl = document.createElement('div');
   bodyEl.className = 'body';
   bodyEl.innerHTML = renderMarkdown(payload.text || '');
+  for (const inlineImageEl of bodyEl.querySelectorAll('img')) {
+    attachImageLightbox(inlineImageEl, inlineImageEl.currentSrc || inlineImageEl.src, inlineImageEl.alt || 'Expanded image');
+  }
   container.appendChild(bodyEl);
 
-  if (Array.isArray(payload.images) && payload.images.length) {
+  const rawFiles = Array.isArray(payload.files)
+    ? payload.files.filter((file) => file && (file.kind === 'text' || file.content || file.path))
+    : [];
+  const imageFiles = rawFiles.filter((file) => isImageAttachment(file) && getSharedFileUrl(file));
+  const visibleFiles = rawFiles.filter((file) => !isImageAttachment(file));
+  const galleryImages = [];
+  const seenImageSources = new Set();
+
+  for (const image of Array.isArray(payload.images) ? payload.images : []) {
+    const src = image?.previewUrl || (image?.data && image?.mimeType ? `data:${image.mimeType};base64,${image.data}` : '');
+    if (!src || seenImageSources.has(src)) continue;
+    seenImageSources.add(src);
+    galleryImages.push({
+      src,
+      alt: image?.name || 'Attached image',
+      href: src.startsWith('data:') ? null : src,
+    });
+  }
+
+  for (const file of imageFiles) {
+    const src = getSharedFileUrl(file);
+    if (!src || seenImageSources.has(src)) continue;
+    seenImageSources.add(src);
+    galleryImages.push({
+      src,
+      alt: file.name || 'Shared image',
+      href: src,
+    });
+  }
+
+  if (galleryImages.length) {
     const galleryEl = document.createElement('div');
     galleryEl.className = 'message-images';
 
-    for (const image of payload.images) {
-      const src = image.previewUrl || (image.data && image.mimeType ? `data:${image.mimeType};base64,${image.data}` : '');
-      if (!src) continue;
+    for (const image of galleryImages) {
       const imgEl = document.createElement('img');
-      imgEl.alt = image.name || 'Attached image';
+      imgEl.alt = image.alt;
       imgEl.loading = 'lazy';
-      imgEl.src = src;
-      galleryEl.appendChild(imgEl);
+      imgEl.src = image.src;
+
+      if (image.href) {
+        const linkEl = document.createElement('a');
+        linkEl.href = image.href;
+        linkEl.target = '_blank';
+        linkEl.rel = 'noopener noreferrer';
+        attachImageLightbox(linkEl, image.src, image.alt);
+        linkEl.appendChild(imgEl);
+        galleryEl.appendChild(linkEl);
+      } else {
+        attachImageLightbox(imgEl, image.src, image.alt);
+        galleryEl.appendChild(imgEl);
+      }
     }
 
-    if (galleryEl.childElementCount) {
-      container.appendChild(galleryEl);
-    }
+    container.appendChild(galleryEl);
   }
-
-  const visibleFiles = Array.isArray(payload.files)
-    ? payload.files.filter((file) => file && (file.kind === 'text' || file.content || file.path))
-    : [];
 
   if (visibleFiles.length) {
     const filesEl = document.createElement('div');
@@ -369,20 +479,32 @@ function addMessage(role, payload = {}) {
   return wrapper;
 }
 
+function getRenderableMessagePayload(message) {
+  const { text, images } = extractMessageParts(message);
+  const parsed = parseFileBlocks(text);
+  if (!parsed.text.trim() && !images.length && !parsed.files.length) return null;
+
+  return {
+    text: parsed.text,
+    images,
+    files: parsed.files,
+  };
+}
+
 function renderHistory(messages) {
   resetConversationView();
 
   for (const message of messages) {
+    const payload = getRenderableMessagePayload(message);
+    if (!payload) continue;
+
     if (message.role === 'user' || message.role === 'assistant') {
-      const { text, images } = extractMessageParts(message);
-      const parsed = parseFileBlocks(text);
-      if (parsed.text.trim() || images.length || parsed.files.length) {
-        addMessage(message.role, {
-          text: parsed.text,
-          images,
-          files: parsed.files,
-        });
-      }
+      addMessage(message.role, payload);
+      continue;
+    }
+
+    if (message.role === 'toolResult' && (payload.images.length || payload.files.length)) {
+      addMessage('assistant', payload);
     }
   }
 }
@@ -449,21 +571,12 @@ async function refreshStateFromServer() {
 }
 
 function finalizeAssistantMessage(message) {
-  const { text, images } = extractMessageParts(message);
-  const parsed = parseFileBlocks(text);
-  if (!parsed.text.trim() && !images.length && !parsed.files.length) return;
+  const payload = getRenderableMessagePayload(message);
+  if (!payload) return;
 
-  liveAssistantText = parsed.text;
-  const el = liveAssistantEl || addMessage('assistant', {
-    text: parsed.text,
-    images,
-    files: parsed.files,
-  });
-  setMessageContent(el, {
-    text: parsed.text,
-    images,
-    files: parsed.files,
-  });
+  liveAssistantText = payload.text;
+  const el = liveAssistantEl || addMessage('assistant', payload);
+  setMessageContent(el, payload);
   resetLiveAssistant();
 }
 
@@ -703,6 +816,14 @@ function handleRpcEvent(payload) {
     return;
   }
 
+  if (payload.type === 'message_end' && payload.message?.role === 'toolResult') {
+    const messagePayload = getRenderableMessagePayload(payload.message);
+    if (messagePayload && (messagePayload.images.length || messagePayload.files.length)) {
+      addMessage('assistant', messagePayload);
+    }
+    return;
+  }
+
   if (payload.type === 'tool_execution_start') {
     setStatus(`Running tool: ${payload.toolName}`);
     return;
@@ -828,6 +949,7 @@ composerNewSessionBtnEl.addEventListener('click', async () => {
 
 themeToggleBtnEl.addEventListener('click', toggleTheme);
 
+initializeImageLightbox();
 applyTheme(getStoredTheme(), { persist: false });
 
 function ensureEventConnection() {
