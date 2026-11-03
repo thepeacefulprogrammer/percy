@@ -4,3 +4,4 @@ tmp/
 *.log
 scripts/__pycache__/
 *.pyc
+shared/
