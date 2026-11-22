@@ -1,0 +1,24 @@
+{
+  "name": "5/3/1 Companion",
+  "short_name": "5/3/1",
+  "description": "Local-first 5/3/1 training max, workout, and cycle tracking app.",
+  "start_url": "/531.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4e2b8",
+  "theme_color": "#b55431",
+  "icons": [
+    {
+      "src": "/531-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/531-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#b55431">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="5/3/1 Companion">
+    <title>5/3/1 Companion</title>
+    <link rel="manifest" href="/531.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="/531-icon-192.png">
+    <link rel="apple-touch-icon" href="/531-apple-touch-icon.png">
+    <link rel="stylesheet" href="/531.css">
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((error) => {
+            console.warn('Service worker registration failed for 5/3/1 Companion', error);
+          });
+        });
+      }
+    </script>
+    <script type="module" src="/531.js"></script>
+  </body>
+</html>

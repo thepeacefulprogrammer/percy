@@ -1,4 +1,4 @@
-const CACHE_NAME = 'percy-web-chat-v12';
+const CACHE_NAME = 'percy-web-chat-v13';
 const APP_SHELL = [
   '/',
   '/app.js?v=15',
@@ -9,6 +9,13 @@ const APP_SHELL = [
   '/icon-192.png',
   '/icon-512.png',
   '/apple-touch-icon.png',
+  '/531.html',
+  '/531.js',
+  '/531.css',
+  '/531.webmanifest',
+  '/531-icon-192.png',
+  '/531-icon-512.png',
+  '/531-apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (event) => {
