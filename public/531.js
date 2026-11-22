@@ -287,6 +287,76 @@ function getStandardIncrement(liftKey, units) {
   return isUpper ? 5 : 10;
 }
 
+function getDefaultBarbellWeight(units) {
+  return units === 'kg' ? 20 : 45;
+}
+
+function getAvailablePlates(units) {
+  if (units === 'kg') {
+    return [25, 20, 15, 10, 5, 2.5, 1.25];
+  }
+  return [45, 35, 25, 10, 5, 2.5, 1, 0.75, 0.5, 0.25];
+}
+
+function getPlateBreakdown(totalWeight, units, barbellWeight = getDefaultBarbellWeight(units)) {
+  const normalizedWeight = Number(totalWeight || 0);
+  const normalizedBarbellWeight = Number(barbellWeight || getDefaultBarbellWeight(units));
+  const perSideTarget = Math.max(0, (normalizedWeight - normalizedBarbellWeight) / 2);
+  let remaining = perSideTarget;
+  const plates = [];
+
+  for (const plate of getAvailablePlates(units)) {
+    const count = Math.floor((remaining + 0.0001) / plate);
+    for (let index = 0; index < count; index += 1) {
+      plates.push(plate);
+      remaining -= plate;
+    }
+  }
+
+  remaining = Math.round(remaining * 100) / 100;
+
+  return {
+    barbellWeight: normalizedBarbellWeight,
+    perSideTarget,
+    plates,
+    remainder: remaining,
+  };
+}
+
+function renderPlateBreakdown(totalWeight) {
+  const units = state.user?.units || 'lb';
+  const barbellWeight = Number(state.user?.barbellWeight || getDefaultBarbellWeight(units));
+  const breakdown = getPlateBreakdown(totalWeight, units, barbellWeight);
+  const platesOutsideToInside = [...breakdown.plates].sort((left, right) => left - right);
+  const hasPlates = Number(totalWeight || 0) > barbellWeight && platesOutsideToInside.length > 0;
+  const plateDescription = hasPlates ? platesOutsideToInside.map((plate) => formatNumber(plate)).join(' · ') : 'bar only';
+  const stackLabel = hasPlates
+    ? `Per-side stack showing ${platesOutsideToInside.map((plate) => formatWeight(plate, units)).join(', ')}`
+    : `Bar only with a ${formatWeight(barbellWeight, units)} bar`;
+  const plateMarkup = hasPlates
+    ? platesOutsideToInside
+      .map(
+        (plate) =>
+          `<span class="plate-chip" data-plate-size="${String(plate).replace('.', '_')}" aria-hidden="true" title="${formatWeight(plate, units)} plate"><span class="plate-chip__label">${formatNumber(plate)}</span></span>`,
+      )
+      .join('')
+    : '';
+
+  return `
+    <div class="plate-breakdown">
+      <div class="plate-breakdown__stack" role="img" aria-label="${stackLabel}">
+        <span class="plate-breakdown__bar" aria-hidden="true"></span>
+        <span class="plate-breakdown__collar" aria-hidden="true"></span>
+        <span class="plate-breakdown__plates${hasPlates ? '' : ' plate-breakdown__plates--empty'}" aria-hidden="true">${plateMarkup}</span>
+      </div>
+      <div class="plate-breakdown__text">
+        ${hasPlates ? `Per side · ${plateDescription}` : 'Bar only'}
+        <span class="muted"> · assumes a ${formatWeight(barbellWeight, units)} bar</span>
+      </div>
+    </div>
+  `;
+}
+
 function getWeekWave(weekType) {
   return WEEK_WAVES.find((wave) => wave.key === weekType) || WEEK_WAVES[0];
 }
@@ -770,6 +840,7 @@ function createProgramFromDraft() {
   const user = {
     units: draft.units,
     roundingIncrement: Number(draft.roundingIncrement),
+    barbellWeight: getDefaultBarbellWeight(draft.units),
     experienceLevel: draft.experienceLevel,
     daysPerWeek: Number(draft.daysPerWeek),
     templateSlug: draft.templateSlug,
@@ -943,6 +1014,105 @@ function exportState() {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function readSettingsFormValues() {
+  const roundingInput = document.querySelector('[data-settings-field="roundingIncrement"]');
+  const barbellInput = document.querySelector('[data-settings-field="barbellWeight"]');
+  const roundingIncrement = roundingInput ? Number(roundingInput.value) : Number(state.user?.roundingIncrement || 0);
+  const barbellWeight = barbellInput
+    ? Number(barbellInput.value)
+    : Number(state.user?.barbellWeight || getDefaultBarbellWeight(state.user?.units || 'lb'));
+  const trainingMaxes = Object.fromEntries(
+    LIFT_ORDER.map((liftKey) => {
+      const input = document.querySelector(`[data-settings-lift="${liftKey}"][data-field="currentTrainingMax"]`);
+      return [liftKey, input ? Number(input.value) : Number(state.liftProfiles?.[liftKey]?.currentTrainingMax || 0)];
+    }),
+  );
+
+  return {
+    roundingIncrement,
+    barbellWeight,
+    trainingMaxes,
+  };
+}
+
+function regenerateUnfinishedWorkouts(cycle, user, liftProfiles) {
+  if (!cycle || !user || !liftProfiles) return cycle;
+
+  const regeneratedCycle = generateCycle({
+    cycleNumber: cycle.cycleNumber,
+    templateSlug: user.templateSlug,
+    daysPerWeek: user.daysPerWeek,
+    liftProfiles,
+    units: user.units,
+    roundingIncrement: user.roundingIncrement,
+  });
+
+  regeneratedCycle.id = cycle.id;
+  regeneratedCycle.createdAt = cycle.createdAt;
+  regeneratedCycle.status = cycle.status;
+  regeneratedCycle.workouts = cycle.workouts.map((existingWorkout, index) => {
+    if (existingWorkout.status === 'completed') return existingWorkout;
+
+    const nextWorkout = regeneratedCycle.workouts[index];
+    return {
+      ...nextWorkout,
+      id: existingWorkout.id,
+      status: existingWorkout.status,
+      completedAt: existingWorkout.completedAt,
+      assistanceTargets: existingWorkout.assistanceTargets,
+      assistanceLog: existingWorkout.assistanceLog,
+      flags: existingWorkout.flags,
+      notes: existingWorkout.notes,
+    };
+  });
+
+  return regeneratedCycle;
+}
+
+function applyProgramSettings() {
+  if (!state.user || !state.liftProfiles || !state.activeCycle) return;
+
+  const { roundingIncrement, barbellWeight, trainingMaxes } = readSettingsFormValues();
+  const invalidLifts = LIFT_ORDER.filter((liftKey) => Number(trainingMaxes[liftKey] || 0) <= 0);
+
+  if (roundingIncrement <= 0) {
+    window.alert('Enter a rounding increment above 0.');
+    return;
+  }
+
+  if (barbellWeight <= 0) {
+    window.alert('Enter a barbell weight above 0.');
+    return;
+  }
+
+  if (invalidLifts.length) {
+    window.alert(`Enter valid training maxes for: ${invalidLifts.map((liftKey) => LIFT_LABELS[liftKey]).join(', ')}.`);
+    return;
+  }
+
+  const hadIncompleteWorkouts = getRemainingSetCount(getNextWorkout(state.activeCycle) || { blocks: [] }) > 0
+    || state.activeCycle.workouts.some((workout) => workout.status !== 'completed');
+
+  updateState((draftState) => {
+    draftState.user.roundingIncrement = roundingIncrement;
+    draftState.user.barbellWeight = barbellWeight;
+
+    LIFT_ORDER.forEach((liftKey) => {
+      draftState.liftProfiles[liftKey].currentTrainingMax = roundWeight(trainingMaxes[liftKey], roundingIncrement);
+      draftState.liftProfiles[liftKey].incrementPerCycle = getStandardIncrement(liftKey, draftState.user.units);
+    });
+
+    draftState.activeCycle = regenerateUnfinishedWorkouts(draftState.activeCycle, draftState.user, draftState.liftProfiles);
+    draftState.activeCycle.roundingIncrement = roundingIncrement;
+  });
+
+  window.alert(
+    hadIncompleteWorkouts
+      ? 'Program settings updated. Unfinished workouts were regenerated with the new training maxes and rounding.'
+      : 'Program settings updated.',
+  );
 }
 
 function updateOnboardingField(field, value) {
@@ -1346,6 +1516,7 @@ function renderHome() {
 
 function renderSetRow(workout, set, isActive = false) {
   const weightDelta = Number(state.user?.roundingIncrement || 0.5);
+  const displayedPlateWeight = Number(set.actualWeight || set.prescribedWeight || 0);
   const rowClassNames = [
     'set-row',
     isActive ? 'set-row--active' : '',
@@ -1370,6 +1541,7 @@ function renderSetRow(workout, set, isActive = false) {
         <strong>${formatWeight(set.prescribedWeight, state.user.units)}</strong>
         <span>${set.repStyle === 'plus' ? `${set.prescribedReps}+` : set.prescribedReps} reps</span>
         <small>${Math.round(set.percentageOfTrainingMax * 100)}% TM</small>
+        ${renderPlateBreakdown(displayedPlateWeight)}
       </div>
       <div class="set-row__fields">
         <label class="set-field">
@@ -1721,29 +1893,60 @@ function renderSettings() {
       <article class="card">
         <div class="section-heading">
           <div>
-            <h2>Settings</h2>
-            <p class="muted">MVP utilities for a local-first training log.</p>
+            <h2>Program settings</h2>
+            <p class="muted">Change rounding and training maxes after startup.</p>
+            <small class="field-note">Completed workouts stay logged. Unfinished workouts are regenerated with the updated numbers.</small>
           </div>
         </div>
-        <div class="stack-list">
-          <div class="list-row">
-            <div>
-              <strong>Units</strong>
-              <div class="muted">${state.user.units}</div>
-            </div>
-            <div class="list-row__meta">Rounding ${formatNumber(state.user.roundingIncrement)} ${state.user.units}</div>
+
+        <div class="grid grid--3">
+          <div class="metric-card">
+            <span class="metric-card__label">Units</span>
+            <strong>${state.user.units}</strong>
+            <small>Unit conversion is not automatic in this MVP.</small>
           </div>
-          <div class="list-row">
-            <div>
-              <strong>Storage</strong>
-              <div class="muted">All data stays in browser localStorage for this MVP.</div>
-            </div>
-            <div class="stack-row">
-              <button class="button button--secondary" data-action="export-data">Export JSON</button>
-              <button class="button button--secondary" data-action="import-data">Import JSON</button>
-              <button class="button button--danger" data-action="reset-app">Reset app</button>
-            </div>
+          <label>
+            <span>Rounding increment</span>
+            <input type="number" min="0.5" step="0.5" value="${escapeHtml(state.user.roundingIncrement)}" data-settings-field="roundingIncrement" />
+          </label>
+          <label>
+            <span>Barbell weight</span>
+            <input type="number" min="1" step="0.5" value="${escapeHtml(state.user.barbellWeight || getDefaultBarbellWeight(state.user.units))}" data-settings-field="barbellWeight" />
+          </label>
+        </div>
+
+        <div class="grid grid--2">
+          ${LIFT_ORDER.map((liftKey) => `
+            <label>
+              <span>${LIFT_LABELS[liftKey]} training max</span>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value="${escapeHtml(state.liftProfiles[liftKey].currentTrainingMax)}"
+                data-settings-lift="${liftKey}"
+                data-field="currentTrainingMax"
+              />
+            </label>
+          `).join('')}
+        </div>
+
+        <div class="stack-row stack-row--end">
+          <button class="button" data-action="apply-program-settings">Apply changes</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Storage</h2>
+            <p class="muted">All data stays in browser localStorage for this MVP.</p>
           </div>
+        </div>
+        <div class="stack-row">
+          <button class="button button--secondary" data-action="export-data">Export JSON</button>
+          <button class="button button--secondary" data-action="import-data">Import JSON</button>
+          <button class="button button--danger" data-action="reset-app">Reset app</button>
         </div>
       </article>
     </section>
@@ -1826,6 +2029,8 @@ document.addEventListener('click', (event) => {
     );
   } else if (action === 'apply-next-cycle') {
     applyNextCycle();
+  } else if (action === 'apply-program-settings') {
+    applyProgramSettings();
   } else if (action === 'reset-app') {
     resetApp();
   } else if (action === 'export-data') {
@@ -1836,6 +2041,14 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('input', (event) => {
+  const target = event.target;
+
+  if (target.dataset.action === 'set-field' && target.dataset.field === 'actualWeight') {
+    updateWorkoutSet(target.dataset.workoutId, target.dataset.setId, target.dataset.field, target.value);
+  }
+});
+
+document.addEventListener('change', (event) => {
   const target = event.target;
 
   if (target.dataset.onboardingField) {
@@ -1864,11 +2077,8 @@ document.addEventListener('input', (event) => {
 
   if (target.dataset.action === 'review-selection') {
     updateReviewSelection(target.dataset.liftKey, target.value);
+    return;
   }
-});
-
-document.addEventListener('change', (event) => {
-  const target = event.target;
 
   if (target.id === 'importDataInput') {
     importStateFile(target.files?.[0] || null);
