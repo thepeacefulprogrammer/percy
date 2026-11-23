@@ -652,6 +652,28 @@ function getSelectedWorkout() {
   return getWorkoutById(state.activeCycle, state.ui.selectedWorkoutId) || getNextWorkout(state.activeCycle);
 }
 
+function isWorkoutStarted(workout) {
+  if (!workout || workout.status === 'completed') return false;
+
+  const completion = getWorkoutCompletion(workout);
+  if (completion.completedSets > 0) return true;
+
+  const hasLoggedSetValues = getWorkoutSets(workout).some(
+    (set) => set.actualReps !== '' || set.actualWeight !== '',
+  );
+  const hasAssistance = Object.values(workout.assistanceLog || {}).some((value) => Number(value || 0) > 0);
+  const hasNotes = Boolean(String(workout.notes || '').trim());
+  const flags = workout.flags || {};
+  const hasNonDefaultFlags = flags.difficulty !== 'normal' || flags.barSpeed !== 'okay' || flags.pain !== 'no';
+
+  return hasLoggedSetValues || hasAssistance || hasNotes || hasNonDefaultFlags;
+}
+
+function getInProgressWorkout(cycle) {
+  if (!cycle) return null;
+  return cycle.workouts.find((workout) => workout.status === 'in_progress' || isWorkoutStarted(workout)) || null;
+}
+
 function isCycleComplete(cycle) {
   return Boolean(cycle && cycle.workouts.length && cycle.workouts.every((workout) => workout.status === 'completed'));
 }
@@ -730,6 +752,33 @@ function getSetLocationLabel(workout, setId) {
     }
   }
   return getWorkoutLiftNames(workout);
+}
+
+function summarizeSection(section, units) {
+  const repPattern = section.sets
+    .map((set) => `${set.prescribedReps}${set.repStyle === 'plus' ? '+' : ''}`)
+    .join(' / ');
+  const weightLabels = [...new Set(section.sets.map((set) => formatWeight(set.prescribedWeight, units)))];
+  const weightPattern = weightLabels.length === 1
+    ? weightLabels[0]
+    : `${weightLabels[0]} → ${weightLabels[weightLabels.length - 1]}`;
+
+  return `${section.sets.length} sets · ${repPattern} reps · ${weightPattern}`;
+}
+
+function getSectionCompletion(section) {
+  const total = section.sets.length;
+  const completed = section.sets.filter((set) => set.completed).length;
+  return {
+    completed,
+    total,
+    remaining: total - completed,
+  };
+}
+
+function getLastCompletedSet(workout) {
+  const completedSets = getWorkoutSets(workout).filter((set) => set.completed);
+  return completedSets[completedSets.length - 1] || null;
 }
 
 function getTopSetResultsForLift(cycle, liftKey) {
@@ -1147,6 +1196,10 @@ function updateWorkoutSet(workoutId, setId, field, value) {
         });
       });
     });
+
+    if (workout.status !== 'completed') {
+      workout.status = isWorkoutStarted(workout) ? 'in_progress' : 'planned';
+    }
   });
 }
 
@@ -1174,6 +1227,10 @@ function toggleWorkoutSetCompletion(workoutId, setId) {
         });
       });
     });
+
+    if (workout.status !== 'completed') {
+      workout.status = isWorkoutStarted(workout) ? 'in_progress' : 'planned';
+    }
   });
 }
 
@@ -1201,6 +1258,10 @@ function adjustWorkoutSetValue(workoutId, setId, field, delta) {
         });
       });
     });
+
+    if (workout.status !== 'completed') {
+      workout.status = isWorkoutStarted(workout) ? 'in_progress' : 'planned';
+    }
   });
 }
 
@@ -1211,14 +1272,16 @@ function updateWorkoutMeta(workoutId, field, value) {
     if (field.startsWith('assistance.')) {
       const category = field.split('.')[1];
       workout.assistanceLog[category] = value;
-      return;
-    }
-    if (field.startsWith('flags.')) {
+    } else if (field.startsWith('flags.')) {
       const flag = field.split('.')[1];
       workout.flags[flag] = value;
-      return;
+    } else {
+      workout[field] = value;
     }
-    workout[field] = value;
+
+    if (workout.status !== 'completed') {
+      workout.status = isWorkoutStarted(workout) ? 'in_progress' : 'planned';
+    }
   });
 }
 
@@ -1409,7 +1472,9 @@ function renderOnboarding() {
 
 function renderHome() {
   const cycle = state.activeCycle;
+  const inProgressWorkout = getInProgressWorkout(cycle);
   const nextWorkout = getNextWorkout(cycle);
+  const focusWorkout = inProgressWorkout || nextWorkout;
   const lastCompletedWorkout = getLastCompletedWorkout(cycle);
   const upcomingWorkouts = getUpcomingWorkouts(cycle, 4);
   const progress = getCycleProgress(cycle);
@@ -1418,6 +1483,15 @@ function renderHome() {
     const best = [...review.topSets].sort((a, b) => estimateE1RM(b.actualWeight, b.actualReps) - estimateE1RM(a.actualWeight, a.actualReps))[0];
     return { liftKey: review.liftKey, best };
   });
+  const focusCompletion = focusWorkout ? getWorkoutCompletion(focusWorkout) : { completedSets: 0, totalSets: 0 };
+  const focusRemainingSets = focusWorkout ? getRemainingSetCount(focusWorkout) : 0;
+  const focusNextSet = focusWorkout ? getNextIncompleteSet(focusWorkout) : null;
+  const focusPercent = focusWorkout
+    ? Math.round((focusCompletion.completedSets / Math.max(focusCompletion.totalSets, 1)) * 100)
+    : 0;
+  const focusAssistanceStarted = focusWorkout
+    ? Object.values(focusWorkout.assistanceLog || {}).some((value) => Number(value || 0) > 0)
+    : false;
 
   return `
     <section class="panel-stack">
@@ -1434,12 +1508,13 @@ function renderHome() {
         </article>
 
         <article class="card stat-card">
-          <span class="eyebrow">Next session</span>
-          <h2>${nextWorkout ? escapeHtml(nextWorkout.title) : 'Cycle review ready'}</h2>
-          <p>${nextWorkout ? `${getWeekWave(nextWorkout.weekType).label} · ${getWorkoutLiftNames(nextWorkout)}` : 'All workouts complete. Review your lifts and generate the next cycle.'}</p>
+          <span class="eyebrow">${inProgressWorkout ? 'Resume session' : 'Next session'}</span>
+          <h2>${focusWorkout ? escapeHtml(focusWorkout.title) : 'Cycle review ready'}</h2>
+          <p>${focusWorkout ? `${getWeekWave(focusWorkout.weekType).label} · ${getWorkoutLiftNames(focusWorkout)}${inProgressWorkout ? ` · ${focusCompletion.completedSets}/${focusCompletion.totalSets} sets logged` : ''}` : 'All workouts complete. Review your lifts and generate the next cycle.'}</p>
           <div class="stack-row">
-            ${nextWorkout ? `<button class="button" data-action="open-next-workout">Open workout</button>` : `<button class="button" data-tab="program">Review cycle</button>`}
+            ${focusWorkout ? `<button class="button" data-action="open-workout" data-workout-id="${focusWorkout.id}">${inProgressWorkout ? 'Resume workout' : 'Start workout'}</button>` : `<button class="button" data-tab="program">Review cycle</button>`}
           </div>
+          ${focusWorkout ? `<div class="table-cell-note">${focusNextSet ? `Next up · ${escapeHtml(getSetLocationLabel(focusWorkout, focusNextSet.id))}` : 'All sets checked off. Log assistance and finish the session.'}</div>` : ''}
         </article>
 
         <article class="card stat-card">
@@ -1449,6 +1524,51 @@ function renderHome() {
           <div class="table-cell-note">Keep the training max conservative and let the PRs come to you.</div>
         </article>
       </div>
+
+      <article class="card">
+        <div class="section-heading section-heading--space-between">
+          <div>
+            <span class="eyebrow">${inProgressWorkout ? 'In progress' : 'Today focus'}</span>
+            <h2>${focusWorkout ? escapeHtml(focusWorkout.title) : 'Cycle review ready'}</h2>
+            <p class="muted">${focusWorkout ? `${getWeekWave(focusWorkout.weekType).label} · ${getWorkoutLiftNames(focusWorkout)} · ${focusRemainingSets} ${focusRemainingSets === 1 ? 'set' : 'sets'} left` : 'No workouts remain in this cycle. Head to Program to review each lift and generate the next cycle.'}</p>
+          </div>
+          <div class="stack-row">
+            ${focusWorkout ? `<span class="badge ${inProgressWorkout ? '' : 'badge--muted'}">${inProgressWorkout ? 'Resume' : 'Planned'}</span><button class="button" data-action="open-workout" data-workout-id="${focusWorkout.id}">${inProgressWorkout ? 'Resume workout' : 'Open workout'}</button>` : `<button class="button" data-tab="program">Review cycle</button>`}
+          </div>
+        </div>
+
+        ${focusWorkout ? `
+          <div class="grid grid--3">
+            <div class="metric-card">
+              <span class="metric-card__label">Session progress</span>
+              <strong>${focusCompletion.completedSets}/${focusCompletion.totalSets} sets</strong>
+              <small>${focusPercent}% complete · ${focusRemainingSets} left</small>
+            </div>
+            <div class="metric-card">
+              <span class="metric-card__label">${focusNextSet ? 'Next set' : 'Main work'}</span>
+              <strong>${focusNextSet ? formatWeight(focusNextSet.prescribedWeight, state.user.units) : 'All sets logged'}</strong>
+              <small>${focusNextSet ? `${getSetLocationLabel(focusWorkout, focusNextSet.id)} · ${focusNextSet.repStyle === 'plus' ? `${focusNextSet.prescribedReps}+` : focusNextSet.prescribedReps} reps` : 'Review assistance and session notes, then finish the workout.'}</small>
+            </div>
+            <div class="metric-card">
+              <span class="metric-card__label">Assistance</span>
+              <strong>${focusAssistanceStarted ? 'Started' : 'Ready to log'}</strong>
+              <small>${focusWorkout.assistanceTargets.map((target) => `${ASSISTANCE_LABELS[target.category]} ${target.targetMin}-${target.targetMax}`).join(' · ')}</small>
+            </div>
+          </div>
+
+          <div class="stack-list compact-list">
+            ${focusWorkout.blocks.flatMap((block) => block.sections.map((section) => `
+              <div class="list-row">
+                <div>
+                  <strong>${LIFT_LABELS[block.liftKey]} · ${section.title}</strong>
+                  <div class="muted">${section.description}</div>
+                </div>
+                <div class="list-row__meta">${summarizeSection(section, state.user.units)}</div>
+              </div>
+            `)).join('')}
+          </div>
+        ` : ''}
+      </article>
 
       <article class="card">
         <div class="section-heading">
@@ -1480,8 +1600,11 @@ function renderHome() {
             ${upcomingWorkouts.map((workout, index) => `
               <button class="list-row list-row--button" data-action="open-workout" data-workout-id="${workout.id}">
                 <div>
-                  <strong>${index === 0 ? 'Up next · ' : ''}${escapeHtml(workout.title)}</strong>
+                  <strong>${index === 0 && !inProgressWorkout ? 'Up next · ' : ''}${escapeHtml(workout.title)}</strong>
                   <div class="muted">${getWeekWave(workout.weekType).label} · ${getWorkoutLiftNames(workout)}</div>
+                </div>
+                <div class="list-row__meta">
+                  <span class="badge ${workout.status === 'in_progress' || isWorkoutStarted(workout) ? '' : 'badge--muted'}">${workout.status === 'in_progress' || isWorkoutStarted(workout) ? 'Resume' : 'Planned'}</span>
                 </div>
               </button>
             `).join('') || '<p class="muted">No upcoming workouts left in this cycle.</p>'}
@@ -1608,6 +1731,7 @@ function renderWorkout() {
   const completion = getWorkoutCompletion(workout);
   const remainingSets = getRemainingSetCount(workout);
   const nextSet = getNextIncompleteSet(workout);
+  const lastCompletedSet = getLastCompletedSet(workout);
   const completeButtonLabel = remainingSets > 0 ? `Finish workout (${remainingSets} left)` : 'Complete workout';
 
   return `
@@ -1634,35 +1758,40 @@ function renderWorkout() {
             <p class="muted">${nextSet ? `${getSetLocationLabel(workout, nextSet.id)} · ${formatWeight(nextSet.prescribedWeight, state.user.units)} for ${nextSet.repStyle === 'plus' ? `${nextSet.prescribedReps}+` : nextSet.prescribedReps}` : 'All sets are checked off. Review assistance and notes, then finish the workout.'}</p>
           </div>
           <div class="stack-row">
-            ${nextSet ? `<button class="button button--secondary" data-action="toggle-set-complete" data-workout-id="${workout.id}" data-set-id="${nextSet.id}">Mark next set done</button>` : ''}
-            ${workout.status !== 'completed' ? `<button class="button" data-action="save-workout" data-workout-id="${workout.id}">${completeButtonLabel}</button>` : ''}
+            ${lastCompletedSet && workout.status !== 'completed' ? `<button class="button button--secondary" data-action="toggle-set-complete" data-workout-id="${workout.id}" data-set-id="${lastCompletedSet.id}">Undo last set</button>` : ''}
+            ${nextSet ? `<button class="button" data-action="toggle-set-complete" data-workout-id="${workout.id}" data-set-id="${nextSet.id}">Mark next set done</button>` : ''}
+            ${workout.status !== 'completed' ? `<button class="button button--secondary" data-action="save-workout" data-workout-id="${workout.id}">${completeButtonLabel}</button>` : ''}
           </div>
         </div>
+        ${nextSet ? renderSetRow(workout, nextSet, true) : `<div class="list-row"><div><strong>Main work complete</strong><div class="muted">${lastCompletedSet ? escapeHtml(getSetLocationLabel(workout, lastCompletedSet.id)) : 'All prescribed sets are logged.'}</div></div><div class="list-row__meta">${lastCompletedSet ? `${formatNumber(lastCompletedSet.actualReps)} reps @ ${formatWeight(lastCompletedSet.actualWeight || lastCompletedSet.prescribedWeight, state.user.units)}` : 'Ready for assistance'}</div></div>`}
       </article>
 
-      ${workout.blocks.map((block) => `
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h3>${LIFT_LABELS[block.liftKey]}</h3>
-              <p class="muted">TM at time: ${formatWeight(block.trainingMaxAtTime, state.user.units)}</p>
-            </div>
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h3>Workout flow</h3>
+            <p class="muted">Stay focused on the next set. The rest of the session is summarized here.</p>
           </div>
-          ${block.sections.map((section) => `
-            <div class="section-block">
-              <div class="section-heading">
+        </div>
+        <div class="stack-list compact-list">
+          ${workout.blocks.flatMap((block) => block.sections.map((section) => {
+            const sectionCompletion = getSectionCompletion(section);
+            const sectionNextSet = section.sets.find((set) => !set.completed) || null;
+            return `
+              <div class="list-row">
                 <div>
-                  <h4>${section.title}</h4>
-                  <p class="muted">${section.description}</p>
+                  <strong>${LIFT_LABELS[block.liftKey]} · ${section.title}</strong>
+                  <div class="muted">${section.description}</div>
+                </div>
+                <div class="list-row__meta">
+                  <div>${sectionCompletion.completed}/${sectionCompletion.total} done</div>
+                  <small>${sectionNextSet ? `${formatWeight(sectionNextSet.prescribedWeight, state.user.units)} × ${sectionNextSet.repStyle === 'plus' ? `${sectionNextSet.prescribedReps}+` : sectionNextSet.prescribedReps} next` : 'Section complete'}</small>
                 </div>
               </div>
-              <div class="stack-list">
-                ${section.sets.map((set) => renderSetRow(workout, set, nextSet?.id === set.id)).join('')}
-              </div>
-            </div>
-          `).join('')}
-        </article>
-      `).join('')}
+            `;
+          })).join('')}
+        </div>
+      </article>
 
       <article class="card">
         <div class="section-heading">
