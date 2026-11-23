@@ -149,11 +149,27 @@ strong {
   z-index: 10;
 }
 
+.app-header__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
 .tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 10px;
   margin-top: 16px;
+  padding: 8px;
+  border-radius: 999px;
+  background: rgba(105, 70, 42, 0.1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .pill-row {
@@ -196,6 +212,32 @@ strong {
   letter-spacing: 0.06em;
   font-size: 0.84rem;
   font-weight: 700;
+}
+
+.tab {
+  min-width: 78px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  box-shadow: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1 0 78px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  background: rgba(255, 249, 236, 0.78);
+}
+
+.tab__icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.tab__label {
+  font-size: 0.68rem;
+  line-height: 1;
 }
 
 .tab--active,
@@ -651,7 +693,8 @@ td {
 
   .hero,
   .section-heading,
-  .section-heading--space-between {
+  .section-heading--space-between,
+  .app-header__top {
     flex-direction: column;
   }
 
@@ -682,7 +725,6 @@ td {
     padding: 16px;
   }
 
-  .tab,
   .button {
     width: 100%;
     justify-content: center;
@@ -693,6 +735,11 @@ td {
   .stack-row,
   .pill-row {
     width: 100%;
+  }
+
+  .tab {
+    min-width: 72px;
+    flex: 1 0 72px;
   }
 
   .pill {

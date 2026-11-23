@@ -19,13 +19,13 @@ const ASSISTANCE_LABELS = {
   pull: 'Pull',
   single_leg_core: 'Single leg / core',
 };
-const TAB_LABELS = {
-  home: 'Home',
-  workout: 'Workout',
-  history: 'History',
-  program: 'Program',
-  settings: 'Settings',
-};
+const TAB_ITEMS = [
+  { key: 'home', label: 'Home', icon: '⌂' },
+  { key: 'workout', label: 'Lift', icon: '🏋' },
+  { key: 'history', label: 'History', icon: '↺' },
+  { key: 'program', label: 'Program', icon: '▤' },
+  { key: 'settings', label: 'Settings', icon: '⚙' },
+];
 const WEEK_WAVES = [
   {
     key: '5s',
@@ -2095,14 +2095,19 @@ function renderShell() {
   return `
     <main class="shell">
       <header class="app-header card">
-        <div>
-          <p class="eyebrow">Training companion</p>
-          <h1>${APP_TITLE}</h1>
-          <p class="muted">${TEMPLATE_PRESETS[state.user.templateSlug].name} · Cycle ${state.activeCycle.cycleNumber} · ${state.user.daysPerWeek} days/week · ${state.user.units}</p>
+        <div class="app-header__top">
+          <div>
+            <p class="eyebrow">Training companion</p>
+            <h1>${APP_TITLE}</h1>
+            <p class="muted">${TEMPLATE_PRESETS[state.user.templateSlug].name} · Cycle ${state.activeCycle.cycleNumber} · ${state.user.daysPerWeek} days/week · ${state.user.units}</p>
+          </div>
         </div>
-        <nav class="tabs">
-          ${['home', 'workout', 'history', 'program', 'settings'].map((tab) => `
-            <button class="tab ${activeTab === tab ? 'tab--active' : ''}" data-tab="${tab}">${TAB_LABELS[tab]}</button>
+        <nav class="tabs" aria-label="Primary">
+          ${TAB_ITEMS.map((tab) => `
+            <button class="tab ${activeTab === tab.key ? 'tab--active' : ''}" data-tab="${tab.key}" aria-label="${tab.label}">
+              <span class="tab__icon" aria-hidden="true">${tab.icon}</span>
+              <span class="tab__label">${tab.label}</span>
+            </button>
           `).join('')}
         </nav>
       </header>
