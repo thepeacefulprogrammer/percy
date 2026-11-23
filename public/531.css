@@ -157,19 +157,13 @@ strong {
 }
 
 .tabs {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
   margin-top: 16px;
-  padding: 8px;
+  padding: 6px;
   border-radius: 999px;
   background: rgba(105, 70, 42, 0.1);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tabs::-webkit-scrollbar {
-  display: none;
 }
 
 .pill-row {
@@ -215,29 +209,30 @@ strong {
 }
 
 .tab {
-  min-width: 78px;
-  padding: 10px 12px;
+  min-width: 0;
+  width: 100%;
+  padding: 9px 6px;
   border-radius: 999px;
   box-shadow: none;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  flex: 1 0 78px;
+  gap: 3px;
   text-transform: none;
   letter-spacing: 0.02em;
   background: rgba(255, 249, 236, 0.78);
 }
 
 .tab__icon {
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1;
 }
 
 .tab__label {
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .tab--active,
@@ -737,9 +732,17 @@ td {
     width: 100%;
   }
 
+  .tabs {
+    gap: 4px;
+    padding: 4px;
+  }
+
   .tab {
-    min-width: 72px;
-    flex: 1 0 72px;
+    padding: 8px 4px;
+  }
+
+  .tab__label {
+    display: none;
   }
 
   .pill {
