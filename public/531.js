@@ -19,6 +19,26 @@ const ASSISTANCE_LABELS = {
   pull: 'Pull',
   single_leg_core: 'Single leg / core',
 };
+const ASSISTANCE_GUIDANCE = {
+  push: {
+    summary: 'Pick 1 push exercise and chip away at the reps in clean, easy-to-moderate sets.',
+    examples: ['Push-ups', 'Dips', 'DB bench', 'DB incline', 'Triceps pushdowns'],
+  },
+  pull: {
+    summary: 'Balance the pressing with rows, pull-ups, or pulldowns. Smooth reps matter more than load.',
+    examples: ['Pull-ups', 'Chin-ups', 'DB rows', 'Cable rows', 'Lat pulldowns'],
+  },
+  single_leg_core: {
+    summary: 'Finish with single-leg or trunk work that builds stability without wrecking recovery.',
+    examples: ['Lunges', 'Split squats', 'Back raises', 'Hanging leg raises', 'Ab wheel'],
+  },
+};
+const ASSISTANCE_TEMPLATE_NOTES = {
+  vanilla: 'Classic 5/3/1: do one movement from each assistance category and stop with a few reps left in the tank.',
+  beginner: 'Beginner 5/3/1 already includes two main lifts. Keep assistance simple and easy—one exercise per category is enough.',
+  fsl: 'FSL already adds 5x5 supplemental work, so keep assistance moderate and avoid grinding.',
+  bbb: 'BBB already adds a lot of volume. Stay near the low end of the assistance rep range and keep it very manageable.',
+};
 const TAB_ITEMS = [
   { key: 'home', label: 'Home', icon: '⌂' },
   { key: 'workout', label: 'Lift', icon: '🏋' },
@@ -206,8 +226,32 @@ function formatNumber(value) {
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);
 }
 
+function formatPlateNumber(value, units) {
+  if (units !== 'lb' || value == null || Number.isNaN(Number(value))) return formatNumber(value);
+
+  const numeric = Number(value);
+  if (Number.isInteger(numeric)) return String(numeric);
+
+  const absolute = Math.abs(numeric);
+  const whole = Math.floor(absolute);
+  const roundedQuarter = Math.round((absolute - whole) * 4);
+  const quarterValue = whole + roundedQuarter / 4;
+
+  if (Math.abs(absolute - quarterValue) > 0.001) return formatNumber(value);
+
+  const fractionGlyph = ['', '¼', '½', '¾'][roundedQuarter] || '';
+  const sign = numeric < 0 ? '-' : '';
+
+  if (!fractionGlyph) return `${sign}${whole}`;
+  return `${sign}${whole > 0 ? `${whole}${fractionGlyph}` : fractionGlyph}`;
+}
+
 function formatWeight(value, units) {
   return `${formatNumber(value)} ${units}`;
+}
+
+function formatPlateWeight(value, units) {
+  return `${formatPlateNumber(value, units)} ${units}`;
 }
 
 function escapeHtml(value) {
@@ -326,18 +370,38 @@ function getPlateBreakdown(totalWeight, units, barbellWeight = getDefaultBarbell
 function renderPlateBreakdown(totalWeight) {
   const units = state.user?.units || 'lb';
   const barbellWeight = Number(state.user?.barbellWeight || getDefaultBarbellWeight(units));
+  const normalizedWeight = Number(totalWeight || 0);
+
+  if (normalizedWeight > 0 && normalizedWeight < barbellWeight) {
+    const perHandWeight = Math.round((normalizedWeight / 2) * 100) / 100;
+    return `
+      <div class="plate-breakdown plate-breakdown--dumbbell">
+        <div class="plate-breakdown__stack plate-breakdown__stack--dumbbell" role="img" aria-label="Use dumbbells instead, ${formatWeight(perHandWeight, units)} each hand">
+          <span class="dumbbell-pair" aria-hidden="true">
+            <span class="dumbbell-pair__item"><span class="dumbbell-pair__handle"></span></span>
+            <span class="dumbbell-pair__item"><span class="dumbbell-pair__handle"></span></span>
+          </span>
+        </div>
+        <div class="plate-breakdown__text">
+          Dumbbells · ${formatWeight(perHandWeight, units)} each hand
+          <span class="muted"> · lighter than a ${formatWeight(barbellWeight, units)} bar</span>
+        </div>
+      </div>
+    `;
+  }
+
   const breakdown = getPlateBreakdown(totalWeight, units, barbellWeight);
   const platesOutsideToInside = [...breakdown.plates].sort((left, right) => left - right);
-  const hasPlates = Number(totalWeight || 0) > barbellWeight && platesOutsideToInside.length > 0;
-  const plateDescription = hasPlates ? platesOutsideToInside.map((plate) => formatNumber(plate)).join(' · ') : 'bar only';
+  const hasPlates = normalizedWeight > barbellWeight && platesOutsideToInside.length > 0;
+  const plateDescription = hasPlates ? platesOutsideToInside.map((plate) => formatPlateNumber(plate, units)).join(' · ') : 'bar only';
   const stackLabel = hasPlates
-    ? `Per-side stack showing ${platesOutsideToInside.map((plate) => formatWeight(plate, units)).join(', ')}`
+    ? `Per-side stack showing ${platesOutsideToInside.map((plate) => formatPlateWeight(plate, units)).join(', ')}`
     : `Bar only with a ${formatWeight(barbellWeight, units)} bar`;
   const plateMarkup = hasPlates
     ? platesOutsideToInside
       .map(
         (plate) =>
-          `<span class="plate-chip" data-plate-size="${String(plate).replace('.', '_')}" aria-hidden="true" title="${formatWeight(plate, units)} plate"><span class="plate-chip__label">${formatNumber(plate)}</span></span>`,
+          `<span class="plate-chip" data-plate-size="${String(plate).replace('.', '_')}" aria-hidden="true" title="${formatPlateWeight(plate, units)} plate"><span class="plate-chip__label">${formatPlateNumber(plate, units)}</span></span>`,
       )
       .join('')
     : '';
@@ -943,25 +1007,6 @@ function createProgramFromDraft() {
   });
 }
 
-function loadDemoState() {
-  state = createInitialState();
-  state.onboarding = {
-    units: 'lb',
-    roundingIncrement: 5,
-    experienceLevel: 'intermediate',
-    daysPerWeek: 4,
-    templateSlug: 'fsl',
-    lifts: {
-      press: { sourceType: 'estimated_1rm', sourceValue: 135, trainingMaxOverride: '' },
-      bench: { sourceType: 'estimated_1rm', sourceValue: 245, trainingMaxOverride: '' },
-      squat: { sourceType: 'estimated_1rm', sourceValue: 315, trainingMaxOverride: '' },
-      deadlift: { sourceType: 'estimated_1rm', sourceValue: 405, trainingMaxOverride: '' },
-    },
-  };
-  saveState();
-  createProgramFromDraft();
-}
-
 function fillUncompletedSets(workout) {
   workout.blocks.forEach((block) => {
     block.sections.forEach((section) => {
@@ -1179,8 +1224,9 @@ function updateOnboardingLift(liftKey, field, value) {
   });
 }
 
-function updateWorkoutSet(workoutId, setId, field, value) {
-  updateState((draftState) => {
+function updateWorkoutSet(workoutId, setId, field, value, options = {}) {
+  const { renderApp = true } = options;
+  const applyUpdate = (draftState) => {
     const workout = getWorkoutById(draftState.activeCycle, workoutId);
     if (!workout) return;
 
@@ -1200,7 +1246,15 @@ function updateWorkoutSet(workoutId, setId, field, value) {
     if (workout.status !== 'completed') {
       workout.status = isWorkoutStarted(workout) ? 'in_progress' : 'planned';
     }
-  });
+  };
+
+  if (renderApp) {
+    updateState(applyUpdate);
+    return;
+  }
+
+  applyUpdate(state);
+  saveState();
 }
 
 function toggleWorkoutSetCompletion(workoutId, setId) {
@@ -1332,12 +1386,9 @@ function renderOnboarding() {
     <main class="shell shell--auth">
       <section class="hero card">
         <div>
-          <p class="eyebrow">MVP</p>
+          <p class="eyebrow">Start here</p>
           <h1>${APP_TITLE}</h1>
-          <p class="lead">A lightweight, mobile-first web app for setting conservative training maxes, seeing exact work sets, and running clean cycle reviews.</p>
-        </div>
-        <div class="hero-actions">
-          <button class="button button--secondary" data-action="load-demo">Load demo</button>
+          <p class="lead">Set your lifts, choose your schedule, and get clear work sets you can use right away in the gym.</p>
         </div>
       </section>
 
@@ -1391,17 +1442,17 @@ function renderOnboarding() {
         </article>
 
         <article class="card">
-          <h2>2. Conservative TM preview</h2>
-          <p class="muted">If you enter a true or estimated 1RM, the app suggests 85% for beginners and 90% for others. You can override the planned TM before starting the cycle.</p>
-          <p class="field-note">Percentages are always based on training max, not a true 1RM.</p>
+          <h2>2. Starting weight preview</h2>
+          <p class="muted">Enter a best lift or current training max and the app will suggest a conservative starting weight for each lift. You can adjust it before you begin.</p>
+          <p class="field-note">Your work sets are calculated from the training max shown here.</p>
           ${invalidRows.length ? `<p class="field-note field-note--warning">Enter valid numbers for ${invalidRows.map((row) => LIFT_LABELS[row.liftKey]).join(', ')} before starting the program.</p>` : ''}
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Lift</th>
-                  <th>Suggested TM</th>
-                  <th>Planned TM</th>
+                  <th>Suggested training max</th>
+                  <th>Starting training max</th>
                   <th>Wave 1 top set</th>
                   <th>Cycle jump</th>
                 </tr>
@@ -1415,7 +1466,7 @@ function renderOnboarding() {
                       <td>${formatWeight(row.suggestedTM, draft.units)}</td>
                       <td>
                         <strong>${formatWeight(row.plannedTM, draft.units)}</strong>
-                        ${row.usingOverride ? '<div class="table-cell-note">Custom TM</div>' : ''}
+                        ${row.usingOverride ? '<div class="table-cell-note">Custom starting weight</div>' : ''}
                         ${row.guardrail ? `<div class="table-cell-note table-cell-note--warning">${escapeHtml(row.guardrail)}</div>` : ''}
                       </td>
                       <td>${formatWeight(row.weekOneTopSet, draft.units)}</td>
@@ -1452,12 +1503,12 @@ function renderOnboarding() {
                     <input type="number" min="0" step="1" value="${escapeHtml(lift.sourceValue)}" data-lift-source="${liftKey}" data-field="sourceValue" />
                   </label>
                   <label class="field--full">
-                    <span>Planned TM override (optional)</span>
-                    <input type="number" min="0" step="0.5" value="${escapeHtml(lift.trainingMaxOverride)}" placeholder="Use suggested TM" data-lift-source="${liftKey}" data-field="trainingMaxOverride" />
-                    <small>Suggested TM: ${formatWeight(preview?.suggestedTM || 0, draft.units)}</small>
+                    <span>Starting training max override (optional)</span>
+                    <input type="number" min="0" step="0.5" value="${escapeHtml(lift.trainingMaxOverride)}" placeholder="Use suggested starting weight" data-lift-source="${liftKey}" data-field="trainingMaxOverride" />
+                    <small>Suggested training max: ${formatWeight(preview?.suggestedTM || 0, draft.units)}</small>
                   </label>
                 </div>
-                ${preview?.guardrail ? `<p class="field-note field-note--warning">${escapeHtml(preview.guardrail)}</p>` : '<p class="field-note">TM percentages are based on the planned TM, not the entered max.</p>'}
+                ${preview?.guardrail ? `<p class="field-note field-note--warning">${escapeHtml(preview.guardrail)}</p>` : '<p class="field-note">Your work sets will use the starting training max shown above.</p>'}
               </div>
             `;
           }).join('')}
@@ -1640,6 +1691,7 @@ function renderHome() {
 function renderSetRow(workout, set, isActive = false) {
   const weightDelta = Number(state.user?.roundingIncrement || 0.5);
   const displayedPlateWeight = Number(set.actualWeight || set.prescribedWeight || 0);
+  const platePreviewMarkup = renderPlateBreakdown(displayedPlateWeight);
   const rowClassNames = [
     'set-row',
     isActive ? 'set-row--active' : '',
@@ -1659,13 +1711,27 @@ function renderSetRow(workout, set, isActive = false) {
 
   return `
     <div class="${rowClassNames}">
-      <div class="set-row__prescription">
+      <div class="set-row__summary">
         <small class="set-row__meta">${setMeta}</small>
-        <strong>${formatWeight(set.prescribedWeight, state.user.units)}</strong>
-        <span>${set.repStyle === 'plus' ? `${set.prescribedReps}+` : set.prescribedReps} reps</span>
-        <small>${Math.round(set.percentageOfTrainingMax * 100)}% TM</small>
-        ${renderPlateBreakdown(displayedPlateWeight)}
+        <strong class="set-row__weight">${formatWeight(set.prescribedWeight, state.user.units)}</strong>
+        <div class="set-row__prescription-line">
+          <span>${set.repStyle === 'plus' ? `${set.prescribedReps}+` : set.prescribedReps} reps</span>
+          <span>·</span>
+          <span>${Math.round(set.percentageOfTrainingMax * 100)}% TM</span>
+        </div>
       </div>
+      <div class="set-row__actions">
+        <button
+          type="button"
+          class="button ${set.completed ? 'button--secondary' : ''}"
+          data-action="toggle-set-complete"
+          data-workout-id="${workout.id}"
+          data-set-id="${set.id}"
+        >
+          ${set.completed ? 'Undo' : 'Mark done'}
+        </button>
+      </div>
+      <div class="set-row__plate-preview" data-plate-preview-workout-id="${workout.id}" data-plate-preview-set-id="${set.id}">${platePreviewMarkup}</div>
       <div class="set-row__fields">
         <label class="set-field">
           <span>Reps done</span>
@@ -1701,17 +1767,6 @@ function renderSetRow(workout, set, isActive = false) {
             <button type="button" class="stepper-button" data-action="adjust-set-value" data-workout-id="${workout.id}" data-set-id="${set.id}" data-field="actualWeight" data-delta="${weightDelta}">+</button>
           </div>
         </label>
-      </div>
-      <div class="set-row__actions">
-        <button
-          type="button"
-          class="button ${set.completed ? 'button--secondary' : ''}"
-          data-action="toggle-set-complete"
-          data-workout-id="${workout.id}"
-          data-set-id="${set.id}"
-        >
-          ${set.completed ? 'Undo' : 'Mark done'}
-        </button>
       </div>
     </div>
   `;
@@ -1799,6 +1854,25 @@ function renderWorkout() {
             <h3>Assistance + session notes</h3>
             <p class="muted">Log assistance by category to keep the main workout fast.</p>
           </div>
+        </div>
+        <div class="list-row">
+          <div>
+            <strong>What to do today</strong>
+            <div class="muted">${ASSISTANCE_TEMPLATE_NOTES[workout.templateSlug] || ASSISTANCE_TEMPLATE_NOTES.vanilla}</div>
+          </div>
+          <div class="list-row__meta">50-100 reps per category</div>
+        </div>
+        <div class="grid grid--3">
+          ${workout.assistanceTargets.map((target) => {
+            const guide = ASSISTANCE_GUIDANCE[target.category];
+            return `
+              <div class="lift-card assistance-card">
+                <h4>${ASSISTANCE_LABELS[target.category]}</h4>
+                <p class="muted">${guide.summary}</p>
+                <small class="field-note">Try: ${guide.examples.join(' · ')}</small>
+              </div>
+            `;
+          }).join('')}
         </div>
         <div class="grid grid--3">
           ${workout.assistanceTargets.map((target) => `
@@ -1945,8 +2019,8 @@ function renderProgram() {
       <article class="card">
         <div class="section-heading">
           <div>
-            <h3>Active cycle structure</h3>
-            <p class="muted">Program → cycle → week → workout is the app's core model.</p>
+            <h3>Workout lineup</h3>
+            <p class="muted">See every session in your current cycle and jump into the one you want to train.</p>
           </div>
         </div>
         <div class="stack-list">
@@ -1964,8 +2038,8 @@ function renderProgram() {
       <article class="card">
         <div class="section-heading section-heading--space-between">
           <div>
-            <h3>Cycle review</h3>
-            <p class="muted">Default logic recommends increase, hold, or reset per lift.</p>
+            <h3>Next cycle recommendations</h3>
+            <p class="muted">Review each lift, then choose whether to increase, hold, or reset before starting the next cycle.</p>
           </div>
           ${complete ? `<button class="button" data-action="apply-next-cycle">Apply review and generate next cycle</button>` : ''}
         </div>
@@ -2023,8 +2097,8 @@ function renderSettings() {
         <div class="section-heading">
           <div>
             <h2>Program settings</h2>
-            <p class="muted">Change rounding and training maxes after startup.</p>
-            <small class="field-note">Completed workouts stay logged. Unfinished workouts are regenerated with the updated numbers.</small>
+            <p class="muted">Update your bar weight, rounding, and training maxes whenever you need to.</p>
+            <small class="field-note">Completed workouts stay logged. Unfinished workouts will refresh with the updated numbers.</small>
           </div>
         </div>
 
@@ -2032,7 +2106,7 @@ function renderSettings() {
           <div class="metric-card">
             <span class="metric-card__label">Units</span>
             <strong>${state.user.units}</strong>
-            <small>Unit conversion is not automatic in this MVP.</small>
+            <small>Changing units does not convert your saved numbers automatically.</small>
           </div>
           <label>
             <span>Rounding increment</span>
@@ -2068,8 +2142,8 @@ function renderSettings() {
       <article class="card">
         <div class="section-heading">
           <div>
-            <h2>Storage</h2>
-            <p class="muted">All data stays in browser localStorage for this MVP.</p>
+            <h2>Data</h2>
+            <p class="muted">Your data stays on this device unless you export it.</p>
           </div>
         </div>
         <div class="stack-row">
@@ -2117,6 +2191,14 @@ function renderShell() {
   `;
 }
 
+function syncWorkoutSetPlatePreview(workoutId, setId, totalWeight) {
+  const platePreview = app.querySelector(
+    `[data-plate-preview-workout-id="${workoutId}"][data-plate-preview-set-id="${setId}"]`,
+  );
+  if (!platePreview) return;
+  platePreview.innerHTML = renderPlateBreakdown(totalWeight);
+}
+
 function render() {
   app.innerHTML = state.user ? renderShell() : renderOnboarding();
 }
@@ -2138,8 +2220,6 @@ document.addEventListener('click', (event) => {
   const { action } = target.dataset;
   if (action === 'start-program') {
     createProgramFromDraft();
-  } else if (action === 'load-demo') {
-    loadDemoState();
   } else if (action === 'open-next-workout') {
     updateState((draftState) => {
       draftState.ui.selectedWorkoutId = getNextWorkout(draftState.activeCycle)?.id || null;
@@ -2178,7 +2258,8 @@ document.addEventListener('input', (event) => {
   const target = event.target;
 
   if (target.dataset.action === 'set-field' && target.dataset.field === 'actualWeight') {
-    updateWorkoutSet(target.dataset.workoutId, target.dataset.setId, target.dataset.field, target.value);
+    updateWorkoutSet(target.dataset.workoutId, target.dataset.setId, target.dataset.field, target.value, { renderApp: false });
+    syncWorkoutSetPlatePreview(target.dataset.workoutId, target.dataset.setId, target.value);
   }
 });
 
