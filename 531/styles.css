@@ -284,6 +284,20 @@ label {
   font-weight: 600;
 }
 
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.checkbox-field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 input,
 select,
 textarea {
@@ -297,6 +311,16 @@ textarea {
 
 textarea {
   resize: vertical;
+}
+
+.checkbox-field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
 }
 
 .table-wrap {
@@ -429,10 +453,86 @@ td {
   text-align: right;
 }
 
+.review-callout {
+  align-items: flex-start;
+}
+
+.compact-grid {
+  gap: 12px;
+}
+
+.metric-card--compact {
+  padding: 14px;
+}
+
 .workout-focus-card {
   position: sticky;
   top: 108px;
   z-index: 6;
+}
+
+.rest-timer,
+.warmup-plan {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 2px dashed rgba(105, 70, 42, 0.3);
+  border-radius: 10px;
+  background: rgba(255, 250, 240, 0.7);
+}
+
+.rest-timer[data-timer-state="running"] {
+  border-style: solid;
+  border-color: rgba(181, 84, 49, 0.45);
+}
+
+.rest-timer[data-timer-state="finished"] {
+  border-style: solid;
+  border-color: rgba(96, 123, 68, 0.45);
+  background: rgba(244, 250, 235, 0.84);
+}
+
+.rest-timer__countdown {
+  display: block;
+  font-size: clamp(1.6rem, 5vw, 2.2rem);
+  line-height: 1;
+}
+
+.warmup-plan__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.warmup-plan__steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.warmup-chip {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(105, 70, 42, 0.22);
+  background: rgba(255, 248, 232, 0.88);
+}
+
+.warmup-chip__weight {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.warmup-chip__reps {
+  color: #4d3827;
+}
+
+.warmup-chip small {
+  color: var(--muted);
 }
 
 .set-row {
@@ -777,9 +877,20 @@ td {
   min-width: 132px;
 }
 
+.assist-log-card,
 .set-field {
   display: grid;
   gap: 8px;
+}
+
+.assist-log-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.assist-log-buttons .button {
+  padding-inline: 10px;
 }
 
 .set-stepper {
@@ -846,6 +957,10 @@ td {
 
   .set-row__fields {
     grid-template-columns: 1fr;
+  }
+
+  .assist-log-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .set-row__actions,

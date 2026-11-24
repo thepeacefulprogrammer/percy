@@ -78,30 +78,111 @@ const WEEK_WAVES = [
     ],
   },
 ];
+const RECOVERY_WAVES = {
+  deload: {
+    key: 'deload',
+    label: 'Recovery week · Deload',
+    shortLabel: 'Deload',
+    sets: [
+      { pct: 0.4, reps: 5, style: 'fixed' },
+      { pct: 0.5, reps: 5, style: 'fixed' },
+      { pct: 0.6, reps: 5, style: 'fixed' },
+    ],
+  },
+  tm_test: {
+    key: 'tm_test',
+    label: 'Recovery week · TM test',
+    shortLabel: 'TM test',
+    sets: [
+      { pct: 0.7, reps: 5, style: 'fixed' },
+      { pct: 0.8, reps: 3, style: 'fixed' },
+      { pct: 0.9, reps: 1, style: 'plus' },
+    ],
+  },
+};
+const ALL_WAVES = [...WEEK_WAVES, ...Object.values(RECOVERY_WAVES)];
+const DEFAULT_ASSISTANCE_FAVORITES = {
+  push: '',
+  pull: '',
+  single_leg_core: '',
+};
+const DEFAULT_REST_TIMER_SECONDS = {
+  main: 180,
+  supplemental: 120,
+  assistance: 75,
+};
 const TEMPLATE_PRESETS = {
   vanilla: {
     slug: 'vanilla',
     name: 'Vanilla 5/3/1',
     summary: 'Classic main work only, plus assistance categories.',
+    mainStyle: 'plus',
     supplementalStyle: 'none',
+    jokerSets: false,
   },
   beginner: {
     slug: 'beginner',
     name: 'Beginner 5/3/1',
     summary: 'Two main lifts per session with simple 5x5 support.',
+    mainStyle: 'plus',
     supplementalStyle: 'beginner_secondary',
+    jokerSets: false,
   },
   fsl: {
     slug: 'fsl',
     name: 'FSL 5x5',
     summary: 'Classic main work plus First Set Last 5x5.',
+    mainStyle: 'plus',
     supplementalStyle: 'fsl',
+    jokerSets: false,
   },
   bbb: {
     slug: 'bbb',
     name: 'BBB 5x10',
     summary: 'Classic main work plus Boring But Big 5x10.',
+    mainStyle: 'plus',
     supplementalStyle: 'bbb',
+    jokerSets: false,
+  },
+  five_pro_fsl: {
+    slug: 'five_pro_fsl',
+    name: "5's Pro + FSL",
+    summary: 'All main sets for 5 reps, plus First Set Last 5x5.',
+    mainStyle: 'five_pro',
+    supplementalStyle: 'fsl',
+    jokerSets: false,
+  },
+  five_pro_bbb: {
+    slug: 'five_pro_bbb',
+    name: "5's Pro + BBB",
+    summary: 'All main sets for 5 reps, plus Boring But Big 5x10.',
+    mainStyle: 'five_pro',
+    supplementalStyle: 'bbb',
+    jokerSets: false,
+  },
+  leader_fsl: {
+    slug: 'leader_fsl',
+    name: 'Leader · 5s Pro FSL',
+    summary: 'Conservative leader setup with 5s Pro and First Set Last 5x5.',
+    mainStyle: 'five_pro',
+    supplementalStyle: 'fsl',
+    jokerSets: false,
+  },
+  anchor_fsl: {
+    slug: 'anchor_fsl',
+    name: 'Anchor · Jokers FSL',
+    summary: 'Anchor-style setup with plus sets, joker singles, and First Set Last 5x5.',
+    mainStyle: 'plus',
+    supplementalStyle: 'fsl',
+    jokerSets: true,
+  },
+  joker_fsl: {
+    slug: 'joker_fsl',
+    name: 'Jokers + FSL',
+    summary: 'Classic 5/3/1 with joker singles and First Set Last 5x5.',
+    mainStyle: 'plus',
+    supplementalStyle: 'fsl',
+    jokerSets: true,
   },
 };
 
@@ -115,6 +196,7 @@ function defaultDraft() {
     experienceLevel: 'beginner',
     daysPerWeek: 4,
     templateSlug: 'fsl',
+    showWarmups: true,
     lifts: {
       press: { sourceType: 'estimated_1rm', sourceValue: 95, trainingMaxOverride: '' },
       bench: { sourceType: 'estimated_1rm', sourceValue: 185, trainingMaxOverride: '' },
@@ -124,12 +206,91 @@ function defaultDraft() {
   };
 }
 
+function getDefaultUserSettings() {
+  return {
+    showWarmups: true,
+    assistanceFavorites: { ...DEFAULT_ASSISTANCE_FAVORITES },
+    recoveryWeekType: 'none',
+    recoveryWeekEveryCycles: 3,
+    restSecondsMain: DEFAULT_REST_TIMER_SECONDS.main,
+    restSecondsSupplemental: DEFAULT_REST_TIMER_SECONDS.supplemental,
+    restSecondsAssistance: DEFAULT_REST_TIMER_SECONDS.assistance,
+  };
+}
+
+function getDefaultAssistanceTargets() {
+  return ASSISTANCE_CATEGORIES.map((category, index) => ({
+    category,
+    targetMin: 50,
+    targetMax: 100,
+    displayOrder: index,
+  }));
+}
+
+function getDefaultWorkoutFlags() {
+  return {
+    difficulty: 'normal',
+    barSpeed: 'okay',
+    pain: 'no',
+  };
+}
+
+function getDefaultConditioningLog() {
+  return {
+    completed: 'no',
+    minutes: '',
+    note: '',
+  };
+}
+
+function normalizeWorkoutRecord(workout) {
+  if (!workout) return workout;
+
+  return {
+    ...workout,
+    assistanceTargets: Array.isArray(workout.assistanceTargets) ? workout.assistanceTargets : getDefaultAssistanceTargets(),
+    assistanceLog: {
+      push: '',
+      pull: '',
+      single_leg_core: '',
+      ...(workout.assistanceLog || {}),
+    },
+    assistanceExercises: {
+      ...DEFAULT_ASSISTANCE_FAVORITES,
+      ...(workout.assistanceExercises || {}),
+    },
+    flags: {
+      ...getDefaultWorkoutFlags(),
+      ...(workout.flags || {}),
+    },
+    conditioning: {
+      ...getDefaultConditioningLog(),
+      ...(workout.conditioning || {}),
+    },
+    recovery: workout.recovery || 'okay',
+  };
+}
+
+function normalizeCycleRecord(cycle) {
+  if (!cycle) return cycle;
+  return {
+    ...cycle,
+    workouts: Array.isArray(cycle.workouts) ? cycle.workouts.map((workout) => normalizeWorkoutRecord(workout)) : [],
+  };
+}
+
 function createInitialState() {
   return {
     version: 1,
     ui: {
       tab: 'home',
       selectedWorkoutId: null,
+      restTimer: {
+        endAt: null,
+        durationSeconds: 0,
+        label: '',
+        phase: 'main',
+      },
     },
     onboarding: defaultDraft(),
     user: null,
@@ -137,6 +298,10 @@ function createInitialState() {
     activeCycle: null,
     cycleHistory: [],
     reviewSelections: {},
+    backups: {
+      lastExportedAt: null,
+      lastImportedAt: null,
+    },
   };
 }
 
@@ -144,12 +309,31 @@ function normalizeState(candidate) {
   const initialState = createInitialState();
   const parsed = candidate && typeof candidate === 'object' ? candidate : {};
   const onboarding = parsed.onboarding && typeof parsed.onboarding === 'object' ? parsed.onboarding : {};
+  const backups = parsed.backups && typeof parsed.backups === 'object' ? parsed.backups : {};
   const defaultOnboarding = defaultDraft();
+  const defaultUserSettings = getDefaultUserSettings();
+  const parsedUser = parsed.user && typeof parsed.user === 'object'
+    ? {
+        ...defaultUserSettings,
+        ...parsed.user,
+        assistanceFavorites: {
+          ...DEFAULT_ASSISTANCE_FAVORITES,
+          ...((parsed.user && parsed.user.assistanceFavorites) || {}),
+        },
+      }
+    : null;
 
   return {
     ...initialState,
     ...parsed,
-    ui: { ...initialState.ui, ...(parsed.ui || {}) },
+    ui: {
+      ...initialState.ui,
+      ...(parsed.ui || {}),
+      restTimer: {
+        ...initialState.ui.restTimer,
+        ...((parsed.ui && parsed.ui.restTimer) || {}),
+      },
+    },
     onboarding: {
       ...defaultOnboarding,
       ...onboarding,
@@ -161,11 +345,19 @@ function normalizeState(candidate) {
         return acc;
       }, {}),
     },
-    cycleHistory: Array.isArray(parsed.cycleHistory) ? parsed.cycleHistory : initialState.cycleHistory,
+    user: parsedUser,
+    activeCycle: normalizeCycleRecord(parsed.activeCycle),
+    cycleHistory: Array.isArray(parsed.cycleHistory)
+      ? parsed.cycleHistory.map((cycle) => normalizeCycleRecord(cycle))
+      : initialState.cycleHistory,
     reviewSelections:
       parsed.reviewSelections && typeof parsed.reviewSelections === 'object'
         ? parsed.reviewSelections
         : initialState.reviewSelections,
+    backups: {
+      ...initialState.backups,
+      ...backups,
+    },
   };
 }
 
@@ -188,6 +380,12 @@ function saveState() {
 async function importStateFile(file) {
   if (!file) return;
 
+  const hasExistingData = Boolean(state.user || state.activeCycle || state.cycleHistory?.length);
+  if (hasExistingData) {
+    const confirmed = window.confirm('Importing a backup will replace the current data on this device. Continue?');
+    if (!confirmed) return;
+  }
+
   try {
     const raw = await file.text();
     const parsed = JSON.parse(raw);
@@ -195,10 +393,16 @@ async function importStateFile(file) {
       throw new Error('The selected file is not a valid 5/3/1 Companion export.');
     }
 
-    state = normalizeState(parsed);
+    state = normalizeState({
+      ...parsed,
+      backups: {
+        ...(parsed.backups || {}),
+        lastImportedAt: new Date().toISOString(),
+      },
+    });
     saveState();
     render();
-    window.alert('Import complete. Your local program data was restored.');
+    window.alert(`Import complete. ${file.name || 'Your backup'} was restored on this device.`);
   } catch (error) {
     console.error('Failed to import state', error);
     window.alert(error?.message || 'Import failed. Please select a valid JSON export.');
@@ -248,6 +452,13 @@ function formatPlateNumber(value, units) {
 
 function formatWeight(value, units) {
   return `${formatNumber(value)} ${units}`;
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Never';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Never';
+  return parsed.toLocaleString();
 }
 
 function formatPlateWeight(value, units) {
@@ -422,14 +633,30 @@ function renderPlateBreakdown(totalWeight) {
 }
 
 function getWeekWave(weekType) {
-  return WEEK_WAVES.find((wave) => wave.key === weekType) || WEEK_WAVES[0];
+  return ALL_WAVES.find((wave) => wave.key === weekType) || WEEK_WAVES[0];
 }
 
-function buildMainSets(trainingMax, weekType, roundingIncrement) {
+function getCycleWaves(cycleNumber, recoveryWeekType, recoveryWeekEveryCycles) {
+  const waves = [...WEEK_WAVES];
+  if (
+    recoveryWeekType
+    && recoveryWeekType !== 'none'
+    && recoveryWeekEveryCycles > 0
+    && cycleNumber % recoveryWeekEveryCycles === 0
+    && RECOVERY_WAVES[recoveryWeekType]
+  ) {
+    waves.push(RECOVERY_WAVES[recoveryWeekType]);
+  }
+  return waves;
+}
+
+function buildMainSets(trainingMax, weekType, roundingIncrement, mainStyle = 'plus') {
   const wave = getWeekWave(weekType);
   return wave.sets.map((set, index) => {
     const rawWeight = trainingMax * set.pct;
     const roundedWeight = roundWeight(rawWeight, roundingIncrement);
+    const prescribedReps = mainStyle === 'five_pro' ? 5 : set.reps;
+    const repStyle = mainStyle === 'five_pro' ? 'fixed' : set.style;
     return {
       id: uid('set'),
       phase: 'main',
@@ -438,10 +665,10 @@ function buildMainSets(trainingMax, weekType, roundingIncrement) {
       percentageOfTrainingMax: set.pct,
       prescribedWeightRaw: rawWeight,
       prescribedWeight: roundedWeight,
-      prescribedReps: set.reps,
-      repStyle: set.style,
+      prescribedReps,
+      repStyle,
       completed: false,
-      actualReps: set.reps,
+      actualReps: prescribedReps,
       actualWeight: roundedWeight,
       painFlag: false,
       notes: '',
@@ -478,8 +705,47 @@ function buildRepeatedSets({
   }));
 }
 
+function buildJokerSection(trainingMax, weekType, roundingIncrement) {
+  const jokerPercentages = {
+    '5s': [0.9, 0.95],
+    '3s': [0.95, 1.0],
+    '531': [1.0, 1.05],
+  };
+  const percentages = jokerPercentages[weekType];
+  if (!percentages) return null;
+
+  return {
+    key: 'jokers',
+    title: 'Joker singles',
+    description: 'Only take these if the top set moved well and recovery feels solid.',
+    sets: percentages.map((percentage, index) => {
+      const rawWeight = trainingMax * percentage;
+      const roundedWeight = roundWeight(rawWeight, roundingIncrement);
+      return {
+        id: uid('set'),
+        phase: 'joker',
+        groupLabel: 'joker',
+        setIndex: index + 1,
+        percentageOfTrainingMax: percentage,
+        prescribedWeightRaw: rawWeight,
+        prescribedWeight: roundedWeight,
+        prescribedReps: 1,
+        repStyle: 'fixed',
+        completed: false,
+        actualReps: 1,
+        actualWeight: roundedWeight,
+        painFlag: false,
+        notes: '',
+      };
+    }),
+  };
+}
+
 function buildSupplementalSection(templateSlug, trainingMax, weekType, roundingIncrement) {
-  if (templateSlug === 'fsl') {
+  const preset = TEMPLATE_PRESETS[templateSlug] || TEMPLATE_PRESETS.fsl;
+  const supplementalStyle = preset.supplementalStyle;
+
+  if (supplementalStyle === 'fsl') {
     const firstSetPct = getWeekWave(weekType).sets[0].pct;
     return {
       key: 'supplemental',
@@ -497,7 +763,7 @@ function buildSupplementalSection(templateSlug, trainingMax, weekType, roundingI
     };
   }
 
-  if (templateSlug === 'bbb') {
+  if (supplementalStyle === 'bbb') {
     return {
       key: 'supplemental',
       title: 'Boring But Big 5x10',
@@ -527,6 +793,7 @@ function buildBlock({
   secondary = false,
 }) {
   const sections = [];
+  const preset = TEMPLATE_PRESETS[templateSlug] || TEMPLATE_PRESETS.fsl;
   if (secondary) {
     const firstSetPct = getWeekWave(weekType).sets[0].pct;
     sections.push({
@@ -544,12 +811,29 @@ function buildBlock({
       }),
     });
   } else {
+    const mainWaveTitle = weekType === 'deload'
+      ? 'Deload wave'
+      : weekType === 'tm_test'
+        ? 'TM test wave'
+        : preset.mainStyle === 'five_pro'
+          ? "5's Pro wave"
+          : 'Main wave';
+    const mainWaveDescription = weekType === 'deload'
+      ? 'Keep every rep smooth and leave plenty in the tank.'
+      : weekType === 'tm_test'
+        ? 'Use this week to check whether the training max still feels honest.'
+        : preset.mainStyle === 'five_pro'
+          ? 'Use TM-based percentages for sets of 5 with no plus set.'
+          : 'Use TM-based percentages. The final set is a plus set.';
+
     sections.push({
       key: 'main',
-      title: 'Main wave',
-      description: 'Use TM-based percentages. The final set is a plus set.',
-      sets: buildMainSets(trainingMax, weekType, roundingIncrement),
+      title: mainWaveTitle,
+      description: mainWaveDescription,
+      sets: buildMainSets(trainingMax, weekType, roundingIncrement, preset.mainStyle),
     });
+    const jokerSection = preset.jokerSets ? buildJokerSection(trainingMax, weekType, roundingIncrement) : null;
+    if (jokerSection) sections.push(jokerSection);
     const supplemental = buildSupplementalSection(templateSlug, trainingMax, weekType, roundingIncrement);
     if (supplemental) sections.push(supplemental);
   }
@@ -571,6 +855,7 @@ function buildWorkout({
   title,
   templateSlug,
   blocks,
+  assistanceFavorites = DEFAULT_ASSISTANCE_FAVORITES,
 }) {
   const totalSets = blocks.reduce(
     (sum, block) => sum + block.sections.reduce((sectionSum, section) => sectionSum + section.sets.length, 0),
@@ -588,29 +873,37 @@ function buildWorkout({
     status: 'planned',
     completedAt: null,
     blocks,
-    assistanceTargets: ASSISTANCE_CATEGORIES.map((category, index) => ({
-      category,
-      targetMin: 50,
-      targetMax: 100,
-      displayOrder: index,
-    })),
+    assistanceTargets: getDefaultAssistanceTargets(),
     assistanceLog: {
       push: '',
       pull: '',
       single_leg_core: '',
     },
-    flags: {
-      difficulty: 'normal',
-      barSpeed: 'okay',
-      pain: 'no',
+    assistanceExercises: {
+      ...DEFAULT_ASSISTANCE_FAVORITES,
+      ...assistanceFavorites,
     },
+    flags: getDefaultWorkoutFlags(),
+    conditioning: getDefaultConditioningLog(),
+    recovery: 'okay',
     notes: '',
     totalSets,
   };
 }
 
-function generateCycle({ cycleNumber, templateSlug, daysPerWeek, liftProfiles, units, roundingIncrement }) {
+function generateCycle({
+  cycleNumber,
+  templateSlug,
+  daysPerWeek,
+  liftProfiles,
+  units,
+  roundingIncrement,
+  recoveryWeekType = 'none',
+  recoveryWeekEveryCycles = 0,
+  assistanceFavorites = DEFAULT_ASSISTANCE_FAVORITES,
+}) {
   const workouts = [];
+  const cycleWaves = getCycleWaves(cycleNumber, recoveryWeekType, recoveryWeekEveryCycles);
 
   if (templateSlug === 'beginner') {
     const weeklySplit = daysPerWeek === 4
@@ -626,7 +919,7 @@ function generateCycle({ cycleNumber, templateSlug, daysPerWeek, liftProfiles, u
           { title: 'Bench + Squat', primary: 'bench', secondary: 'squat' },
         ];
 
-    WEEK_WAVES.forEach((wave, weekOffset) => {
+    cycleWaves.forEach((wave, weekOffset) => {
       weeklySplit.forEach((day, dayOffset) => {
         const primaryTM = liftProfiles[day.primary].currentTrainingMax;
         const secondaryTM = liftProfiles[day.secondary].currentTrainingMax;
@@ -638,6 +931,7 @@ function generateCycle({ cycleNumber, templateSlug, daysPerWeek, liftProfiles, u
             dayIndex: dayOffset + 1,
             title: day.title,
             templateSlug,
+            assistanceFavorites,
             blocks: [
               buildBlock({
                 liftKey: day.primary,
@@ -663,7 +957,7 @@ function generateCycle({ cycleNumber, templateSlug, daysPerWeek, liftProfiles, u
     });
   } else {
     const split = ['press', 'deadlift', 'bench', 'squat'];
-    WEEK_WAVES.forEach((wave, weekOffset) => {
+    cycleWaves.forEach((wave, weekOffset) => {
       split.forEach((liftKey, dayOffset) => {
         workouts.push(
           buildWorkout({
@@ -673,6 +967,7 @@ function generateCycle({ cycleNumber, templateSlug, daysPerWeek, liftProfiles, u
             dayIndex: dayOffset + 1,
             title: LIFT_LABELS[liftKey],
             templateSlug,
+            assistanceFavorites,
             blocks: [
               buildBlock({
                 liftKey,
@@ -696,6 +991,8 @@ function generateCycle({ cycleNumber, templateSlug, daysPerWeek, liftProfiles, u
     units,
     roundingIncrement,
     daysPerWeek,
+    recoveryWeekType,
+    recoveryWeekEveryCycles,
     status: 'active',
     createdAt: new Date().toISOString(),
     workouts,
@@ -728,9 +1025,11 @@ function isWorkoutStarted(workout) {
   const hasAssistance = Object.values(workout.assistanceLog || {}).some((value) => Number(value || 0) > 0);
   const hasNotes = Boolean(String(workout.notes || '').trim());
   const flags = workout.flags || {};
-  const hasNonDefaultFlags = flags.difficulty !== 'normal' || flags.barSpeed !== 'okay' || flags.pain !== 'no';
+  const conditioning = workout.conditioning || {};
+  const hasConditioning = conditioning.completed === 'yes' || Number(conditioning.minutes || 0) > 0 || Boolean(String(conditioning.note || '').trim());
+  const hasNonDefaultFlags = flags.difficulty !== 'normal' || flags.barSpeed !== 'okay' || flags.pain !== 'no' || workout.recovery !== 'okay';
 
-  return hasLoggedSetValues || hasAssistance || hasNotes || hasNonDefaultFlags;
+  return hasLoggedSetValues || hasAssistance || hasNotes || hasConditioning || hasNonDefaultFlags;
 }
 
 function getInProgressWorkout(cycle) {
@@ -782,14 +1081,19 @@ function getWorkoutLiftNames(workout) {
   return workout.blocks.map((block) => LIFT_LABELS[block.liftKey]).join(' + ');
 }
 
+function getTopSetFromSection(section) {
+  if (!section?.sets?.length) return null;
+  return section.sets.find((set) => set.repStyle === 'plus') || section.sets[section.sets.length - 1] || null;
+}
+
 function getTopSetSummary(workout) {
   if (!workout) return 'No completed workout yet';
-  const plusSet = workout.blocks
+  const topSet = workout.blocks
     .flatMap((block) => block.sections)
-    .flatMap((section) => section.sets)
-    .find((set) => set.repStyle === 'plus');
-  if (!plusSet) return `${getWorkoutCompletion(workout).completedSets} sets logged`;
-  return `${formatNumber(plusSet.actualReps)} reps @ ${formatWeight(plusSet.actualWeight, state.user.units)}`;
+    .map((section) => getTopSetFromSection(section))
+    .find(Boolean);
+  if (!topSet) return `${getWorkoutCompletion(workout).completedSets} sets logged`;
+  return `${formatNumber(topSet.actualReps)} reps @ ${formatWeight(topSet.actualWeight, state.user.units)}`;
 }
 
 function getWorkoutSets(workout) {
@@ -853,15 +1157,15 @@ function getTopSetResultsForLift(cycle, liftKey) {
     workout.blocks.forEach((block) => {
       if (block.liftKey !== liftKey) return;
       block.sections.forEach((section) => {
-        const plusSet = section.sets.find((set) => set.repStyle === 'plus');
-        if (plusSet && workout.status === 'completed') {
+        const topSet = getTopSetFromSection(section);
+        if (topSet && workout.status === 'completed' && ['main', 'secondary_main'].includes(topSet.phase)) {
           results.push({
             workoutId: workout.id,
             workoutTitle: workout.title,
             weekType: workout.weekType,
-            prescribedReps: plusSet.prescribedReps,
-            actualReps: Number(plusSet.actualReps || 0),
-            actualWeight: Number(plusSet.actualWeight || plusSet.prescribedWeight || 0),
+            prescribedReps: topSet.prescribedReps,
+            actualReps: Number(topSet.actualReps || 0),
+            actualWeight: Number(topSet.actualWeight || topSet.prescribedWeight || 0),
             difficulty: workout.flags.difficulty,
             barSpeed: workout.flags.barSpeed,
             pain: workout.flags.pain,
@@ -948,15 +1252,82 @@ function getProjectedTM(liftKey, selectedAction) {
   return profile.currentTrainingMax;
 }
 
+function getActionBadgeClass(action) {
+  if (action === 'increase') return 'badge--success';
+  if (action === 'reset') return 'badge--danger';
+  return 'badge--muted';
+}
+
+function getActionLabel(action) {
+  if (action === 'increase') return 'Increase';
+  if (action === 'reset') return 'Reset';
+  return 'Hold';
+}
+
+function getBestTopSet(topSets) {
+  if (!topSets?.length) return null;
+  return [...topSets].sort(
+    (left, right) => estimateE1RM(right.actualWeight, right.actualReps) - estimateE1RM(left.actualWeight, left.actualReps),
+  )[0] || null;
+}
+
+function getCycleReviewSummary(cycle, reviews) {
+  if (!cycle) return null;
+
+  const completedWorkouts = getCompletedWorkouts(cycle);
+  const allTopSets = reviews.flatMap((review) => review.topSets || []);
+  const bestTopSet = getBestTopSet(allTopSets);
+  const increaseCount = reviews.filter((review) => review.action === 'increase').length;
+  const holdCount = reviews.filter((review) => review.action === 'hold').length;
+  const resetCount = reviews.filter((review) => review.action === 'reset').length;
+  const painCount = completedWorkouts.filter((workout) => workout.flags?.pain === 'yes').length;
+  const hardCount = completedWorkouts.filter(
+    (workout) => workout.flags?.difficulty === 'hard' || workout.flags?.barSpeed === 'grindy',
+  ).length;
+  const attentionCount = completedWorkouts.filter(
+    (workout) => workout.flags?.pain === 'yes'
+      || workout.flags?.difficulty === 'hard'
+      || workout.flags?.barSpeed === 'grindy',
+  ).length;
+
+  let headline = 'Finish the current cycle to unlock next-cycle recommendations.';
+  if (isCycleComplete(cycle)) {
+    if (resetCount > 0) {
+      headline = 'At least one lift needs a reset before you move on.';
+    } else if (holdCount > 0) {
+      headline = 'Some lifts look better held steady for one more cycle.';
+    } else {
+      headline = 'Everything looks ready to move up next cycle.';
+    }
+  }
+
+  return {
+    completedWorkoutCount: completedWorkouts.length,
+    totalWorkoutCount: cycle.workouts.length,
+    allTopSets,
+    bestTopSet,
+    increaseCount,
+    holdCount,
+    resetCount,
+    painCount,
+    hardCount,
+    attentionCount,
+    headline,
+    nextCycleNumber: cycle.cycleNumber + 1,
+  };
+}
+
 function createProgramFromDraft() {
   const draft = state.onboarding;
   const user = {
+    ...getDefaultUserSettings(),
     units: draft.units,
     roundingIncrement: Number(draft.roundingIncrement),
     barbellWeight: getDefaultBarbellWeight(draft.units),
     experienceLevel: draft.experienceLevel,
     daysPerWeek: Number(draft.daysPerWeek),
     templateSlug: draft.templateSlug,
+    showWarmups: draft.showWarmups !== false,
     createdAt: new Date().toISOString(),
   };
 
@@ -994,6 +1365,9 @@ function createProgramFromDraft() {
     liftProfiles,
     units: user.units,
     roundingIncrement: user.roundingIncrement,
+    recoveryWeekType: user.recoveryWeekType,
+    recoveryWeekEveryCycles: user.recoveryWeekEveryCycles,
+    assistanceFavorites: user.assistanceFavorites,
   });
 
   updateState((draftState) => {
@@ -1084,6 +1458,9 @@ function applyNextCycle() {
       liftProfiles: draftState.liftProfiles,
       units: draftState.user.units,
       roundingIncrement: draftState.user.roundingIncrement,
+      recoveryWeekType: draftState.user.recoveryWeekType,
+      recoveryWeekEveryCycles: draftState.user.recoveryWeekEveryCycles,
+      assistanceFavorites: draftState.user.assistanceFavorites,
     });
     draftState.reviewSelections = {};
     draftState.ui.tab = 'home';
@@ -1099,11 +1476,23 @@ function resetApp() {
 }
 
 function exportState() {
+  const exportedAt = new Date().toISOString();
+  state = normalizeState({
+    ...state,
+    backups: {
+      ...(state.backups || {}),
+      lastExportedAt: exportedAt,
+    },
+  });
+  saveState();
+  render();
+
+  const exportDate = exportedAt.slice(0, 10);
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = '531-companion-export.json';
+  anchor.download = `531-companion-backup-${exportDate}.json`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -1113,10 +1502,27 @@ function exportState() {
 function readSettingsFormValues() {
   const roundingInput = document.querySelector('[data-settings-field="roundingIncrement"]');
   const barbellInput = document.querySelector('[data-settings-field="barbellWeight"]');
+  const warmupInput = document.querySelector('[data-settings-field="showWarmups"]');
+  const recoveryTypeInput = document.querySelector('[data-settings-field="recoveryWeekType"]');
+  const recoveryEveryInput = document.querySelector('[data-settings-field="recoveryWeekEveryCycles"]');
   const roundingIncrement = roundingInput ? Number(roundingInput.value) : Number(state.user?.roundingIncrement || 0);
   const barbellWeight = barbellInput
     ? Number(barbellInput.value)
     : Number(state.user?.barbellWeight || getDefaultBarbellWeight(state.user?.units || 'lb'));
+  const showWarmups = warmupInput ? warmupInput.checked : state.user?.showWarmups !== false;
+  const recoveryWeekType = recoveryTypeInput ? recoveryTypeInput.value : state.user?.recoveryWeekType || 'none';
+  const recoveryWeekEveryCycles = recoveryEveryInput
+    ? Number(recoveryEveryInput.value || 0)
+    : Number(state.user?.recoveryWeekEveryCycles || 0);
+  const restSecondsMain = Number(document.querySelector('[data-settings-field="restSecondsMain"]')?.value || state.user?.restSecondsMain || DEFAULT_REST_TIMER_SECONDS.main);
+  const restSecondsSupplemental = Number(document.querySelector('[data-settings-field="restSecondsSupplemental"]')?.value || state.user?.restSecondsSupplemental || DEFAULT_REST_TIMER_SECONDS.supplemental);
+  const restSecondsAssistance = Number(document.querySelector('[data-settings-field="restSecondsAssistance"]')?.value || state.user?.restSecondsAssistance || DEFAULT_REST_TIMER_SECONDS.assistance);
+  const assistanceFavorites = Object.fromEntries(
+    ASSISTANCE_CATEGORIES.map((category) => {
+      const input = document.querySelector(`[data-settings-assistance="${category}"]`);
+      return [category, input ? String(input.value || '').trim() : String(state.user?.assistanceFavorites?.[category] || '')];
+    }),
+  );
   const trainingMaxes = Object.fromEntries(
     LIFT_ORDER.map((liftKey) => {
       const input = document.querySelector(`[data-settings-lift="${liftKey}"][data-field="currentTrainingMax"]`);
@@ -1127,6 +1533,13 @@ function readSettingsFormValues() {
   return {
     roundingIncrement,
     barbellWeight,
+    showWarmups,
+    recoveryWeekType,
+    recoveryWeekEveryCycles,
+    restSecondsMain,
+    restSecondsSupplemental,
+    restSecondsAssistance,
+    assistanceFavorites,
     trainingMaxes,
   };
 }
@@ -1141,6 +1554,9 @@ function regenerateUnfinishedWorkouts(cycle, user, liftProfiles) {
     liftProfiles,
     units: user.units,
     roundingIncrement: user.roundingIncrement,
+    recoveryWeekType: user.recoveryWeekType,
+    recoveryWeekEveryCycles: user.recoveryWeekEveryCycles,
+    assistanceFavorites: user.assistanceFavorites,
   });
 
   regeneratedCycle.id = cycle.id;
@@ -1168,7 +1584,18 @@ function regenerateUnfinishedWorkouts(cycle, user, liftProfiles) {
 function applyProgramSettings() {
   if (!state.user || !state.liftProfiles || !state.activeCycle) return;
 
-  const { roundingIncrement, barbellWeight, trainingMaxes } = readSettingsFormValues();
+  const {
+    roundingIncrement,
+    barbellWeight,
+    showWarmups,
+    recoveryWeekType,
+    recoveryWeekEveryCycles,
+    restSecondsMain,
+    restSecondsSupplemental,
+    restSecondsAssistance,
+    assistanceFavorites,
+    trainingMaxes,
+  } = readSettingsFormValues();
   const invalidLifts = LIFT_ORDER.filter((liftKey) => Number(trainingMaxes[liftKey] || 0) <= 0);
 
   if (roundingIncrement <= 0) {
@@ -1186,12 +1613,29 @@ function applyProgramSettings() {
     return;
   }
 
+  if (recoveryWeekType !== 'none' && recoveryWeekEveryCycles <= 0) {
+    window.alert('Choose how often to run the recovery week.');
+    return;
+  }
+
+  if ([restSecondsMain, restSecondsSupplemental, restSecondsAssistance].some((value) => value <= 0)) {
+    window.alert('Rest timer defaults must be above 0 seconds.');
+    return;
+  }
+
   const hadIncompleteWorkouts = getRemainingSetCount(getNextWorkout(state.activeCycle) || { blocks: [] }) > 0
     || state.activeCycle.workouts.some((workout) => workout.status !== 'completed');
 
   updateState((draftState) => {
     draftState.user.roundingIncrement = roundingIncrement;
     draftState.user.barbellWeight = barbellWeight;
+    draftState.user.showWarmups = showWarmups;
+    draftState.user.recoveryWeekType = recoveryWeekType;
+    draftState.user.recoveryWeekEveryCycles = recoveryWeekEveryCycles;
+    draftState.user.restSecondsMain = restSecondsMain;
+    draftState.user.restSecondsSupplemental = restSecondsSupplemental;
+    draftState.user.restSecondsAssistance = restSecondsAssistance;
+    draftState.user.assistanceFavorites = assistanceFavorites;
 
     LIFT_ORDER.forEach((liftKey) => {
       draftState.liftProfiles[liftKey].currentTrainingMax = roundWeight(trainingMaxes[liftKey], roundingIncrement);
@@ -1200,6 +1644,8 @@ function applyProgramSettings() {
 
     draftState.activeCycle = regenerateUnfinishedWorkouts(draftState.activeCycle, draftState.user, draftState.liftProfiles);
     draftState.activeCycle.roundingIncrement = roundingIncrement;
+    draftState.activeCycle.recoveryWeekType = recoveryWeekType;
+    draftState.activeCycle.recoveryWeekEveryCycles = recoveryWeekEveryCycles;
   });
 
   window.alert(
@@ -1216,6 +1662,103 @@ function updateOnboardingField(field, value) {
       draftState.onboarding.roundingIncrement = value === 'kg' ? 2.5 : 5;
     }
   });
+}
+
+function getWarmupSetsForWeight(targetWeight, units, barbellWeight, roundingIncrement) {
+  const normalizedTarget = Number(targetWeight || 0);
+  const normalizedBarbellWeight = Number(barbellWeight || getDefaultBarbellWeight(units));
+  if (normalizedTarget <= 0) return [];
+
+  const ramp = [
+    { percentage: 0, reps: 8, label: 'Empty bar' },
+    { percentage: 0.4, reps: 5 },
+    { percentage: 0.55, reps: 3 },
+    { percentage: 0.7, reps: 1 },
+  ];
+
+  const warmups = ramp
+    .map((step) => {
+      const weight = step.percentage === 0
+        ? normalizedBarbellWeight
+        : Math.max(normalizedBarbellWeight, roundWeight(normalizedTarget * step.percentage, roundingIncrement));
+      return {
+        ...step,
+        weight,
+      };
+    })
+    .filter((step, index, steps) => {
+      if (step.weight >= normalizedTarget) return false;
+      return index === 0 || step.weight > steps[index - 1].weight;
+    });
+
+  if (!warmups.length && normalizedTarget > normalizedBarbellWeight) {
+    return [{ weight: normalizedBarbellWeight, reps: 8, label: 'Empty bar' }];
+  }
+
+  return warmups;
+}
+
+function getSetContext(workout, setId) {
+  if (!workout || !setId) return null;
+
+  for (const block of workout.blocks) {
+    for (const section of block.sections) {
+      for (const set of section.sets) {
+        if (set.id === setId) {
+          return { block, section, set };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function getWarmupPlanForSet(workout, set) {
+  if (!workout || !set || !state.user || state.user.showWarmups === false) return null;
+
+  const context = getSetContext(workout, set.id);
+  if (!context) return null;
+
+  const sectionHasStarted = context.section.sets.some((sectionSet) => sectionSet.completed);
+  const supportsWarmups = ['main', 'secondary_main'].includes(set.phase);
+  if (sectionHasStarted || !supportsWarmups || set.setIndex !== 1) return null;
+
+  const warmupSets = getWarmupSetsForWeight(
+    set.prescribedWeight,
+    state.user.units,
+    state.user.barbellWeight,
+    state.user.roundingIncrement,
+  );
+
+  if (!warmupSets.length) return null;
+
+  return {
+    title: `${LIFT_LABELS[context.block.liftKey]} warm-up`,
+    warmupSets,
+  };
+}
+
+function renderWarmupPlan(warmupPlan) {
+  if (!warmupPlan) return '';
+
+  return `
+    <div class="warmup-plan">
+      <div class="warmup-plan__header">
+        <strong>${escapeHtml(warmupPlan.title)}</strong>
+        <span class="muted">Do these before the first work set.</span>
+      </div>
+      <div class="warmup-plan__steps">
+        ${warmupPlan.warmupSets.map((step) => `
+          <div class="warmup-chip">
+            <span class="warmup-chip__weight">${formatWeight(step.weight, state.user.units)}</span>
+            <span class="warmup-chip__reps">× ${step.reps}</span>
+            ${step.label ? `<small>${escapeHtml(step.label)}</small>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function updateOnboardingLift(liftKey, field, value) {
@@ -1326,6 +1869,9 @@ function updateWorkoutMeta(workoutId, field, value) {
     if (field.startsWith('assistance.')) {
       const category = field.split('.')[1];
       workout.assistanceLog[category] = value;
+    } else if (field.startsWith('conditioning.')) {
+      const conditioningField = field.split('.')[1];
+      workout.conditioning[conditioningField] = value;
     } else if (field.startsWith('flags.')) {
       const flag = field.split('.')[1];
       workout.flags[flag] = value;
@@ -1337,6 +1883,111 @@ function updateWorkoutMeta(workoutId, field, value) {
       workout.status = isWorkoutStarted(workout) ? 'in_progress' : 'planned';
     }
   });
+}
+
+function adjustWorkoutAssistanceLog(workoutId, category, delta) {
+  updateState((draftState) => {
+    const workout = getWorkoutById(draftState.activeCycle, workoutId);
+    if (!workout) return;
+    const current = Number(workout.assistanceLog?.[category] || 0);
+    workout.assistanceLog[category] = Math.max(0, current + Number(delta || 0));
+
+    if (workout.status !== 'completed') {
+      workout.status = isWorkoutStarted(workout) ? 'in_progress' : 'planned';
+    }
+  });
+}
+
+function getRestSecondsForPhase(phase) {
+  if (!state.user) return DEFAULT_REST_TIMER_SECONDS.main;
+  if (phase === 'supplemental' || phase === 'joker') return Number(state.user.restSecondsSupplemental || DEFAULT_REST_TIMER_SECONDS.supplemental);
+  return Number(state.user.restSecondsMain || DEFAULT_REST_TIMER_SECONDS.main);
+}
+
+function getRestTimerDisplay() {
+  const timer = state.ui?.restTimer;
+  if (!timer?.endAt) {
+    return {
+      countdown: 'Off',
+      detail: 'Start automatically after you mark a set done, or use the controls here.',
+      running: false,
+      finished: false,
+    };
+  }
+
+  const secondsLeft = Math.max(0, Math.ceil((timer.endAt - Date.now()) / 1000));
+  const minutes = Math.floor(secondsLeft / 60);
+  const seconds = String(secondsLeft % 60).padStart(2, '0');
+  return {
+    countdown: `${minutes}:${seconds}`,
+    detail: secondsLeft > 0 ? (timer.label || 'Resting') : 'Rest complete',
+    running: secondsLeft > 0,
+    finished: secondsLeft <= 0,
+  };
+}
+
+function syncRestTimerDisplay() {
+  const countdownNode = app.querySelector('[data-rest-timer-countdown]');
+  const detailNode = app.querySelector('[data-rest-timer-detail]');
+  const timerNode = app.querySelector('[data-rest-timer]');
+  if (!countdownNode || !detailNode || !timerNode) return;
+
+  const display = getRestTimerDisplay();
+  countdownNode.textContent = display.countdown;
+  detailNode.textContent = display.detail;
+  timerNode.dataset.timerState = display.finished ? 'finished' : display.running ? 'running' : 'idle';
+}
+
+function startRestTimer(seconds, label, phase = 'main') {
+  updateState((draftState) => {
+    draftState.ui.restTimer = {
+      endAt: Date.now() + Number(seconds || 0) * 1000,
+      durationSeconds: Number(seconds || 0),
+      label,
+      phase,
+    };
+  });
+}
+
+function clearRestTimer() {
+  updateState((draftState) => {
+    draftState.ui.restTimer = {
+      endAt: null,
+      durationSeconds: 0,
+      label: '',
+      phase: 'main',
+    };
+  });
+}
+
+function adjustRestTimer(deltaSeconds) {
+  updateState((draftState) => {
+    const timer = draftState.ui.restTimer || {};
+    if (!timer.endAt) {
+      const baseSeconds = Math.max(30, Number(timer.durationSeconds || state.user?.restSecondsMain || DEFAULT_REST_TIMER_SECONDS.main) + Number(deltaSeconds || 0));
+      draftState.ui.restTimer = {
+        endAt: Date.now() + baseSeconds * 1000,
+        durationSeconds: baseSeconds,
+        label: timer.label || 'Rest timer',
+        phase: timer.phase || 'main',
+      };
+      return;
+    }
+
+    const remainingSeconds = Math.max(0, Math.ceil((timer.endAt - Date.now()) / 1000));
+    const nextSeconds = Math.max(0, remainingSeconds + Number(deltaSeconds || 0));
+    draftState.ui.restTimer = {
+      ...timer,
+      endAt: nextSeconds > 0 ? Date.now() + nextSeconds * 1000 : null,
+      durationSeconds: nextSeconds > 0 ? nextSeconds : 0,
+    };
+  });
+}
+
+function restartRestTimer() {
+  const timer = state.ui?.restTimer;
+  if (!timer?.durationSeconds) return;
+  startRestTimer(timer.durationSeconds, timer.label || 'Rest timer', timer.phase || 'main');
 }
 
 function updateReviewSelection(liftKey, value) {
@@ -1436,6 +2087,11 @@ function renderOnboarding() {
                   .join('')}
               </select>
               <small>${template.summary}</small>
+            </label>
+
+            <label class="checkbox-field field--full">
+              <input type="checkbox" data-onboarding-field="showWarmups" ${draft.showWarmups !== false ? 'checked' : ''} />
+              <span>Show recommended warm-up sets before each main lift</span>
             </label>
           </div>
           <p class="field-note">${escapeHtml(cadenceNote)}</p>
@@ -1788,6 +2444,8 @@ function renderWorkout() {
   const nextSet = getNextIncompleteSet(workout);
   const lastCompletedSet = getLastCompletedSet(workout);
   const completeButtonLabel = remainingSets > 0 ? `Finish workout (${remainingSets} left)` : 'Complete workout';
+  const warmupPlan = nextSet ? getWarmupPlanForSet(workout, nextSet) : null;
+  const restTimerDisplay = getRestTimerDisplay();
 
   return `
     <section class="panel-stack">
@@ -1818,6 +2476,20 @@ function renderWorkout() {
             ${workout.status !== 'completed' ? `<button class="button button--secondary" data-action="save-workout" data-workout-id="${workout.id}">${completeButtonLabel}</button>` : ''}
           </div>
         </div>
+        <div class="rest-timer" data-rest-timer data-timer-state="${restTimerDisplay.finished ? 'finished' : restTimerDisplay.running ? 'running' : 'idle'}">
+          <div>
+            <small class="set-row__meta">Rest timer</small>
+            <strong class="rest-timer__countdown" data-rest-timer-countdown>${restTimerDisplay.countdown}</strong>
+            <div class="muted" data-rest-timer-detail>${restTimerDisplay.detail}</div>
+          </div>
+          <div class="stack-row">
+            <button class="button button--secondary" type="button" data-action="rest-timer-adjust" data-seconds="-30">−30s</button>
+            <button class="button button--secondary" type="button" data-action="rest-timer-restart">Restart</button>
+            <button class="button button--secondary" type="button" data-action="rest-timer-adjust" data-seconds="30">+30s</button>
+            <button class="button button--secondary" type="button" data-action="rest-timer-clear">Clear</button>
+          </div>
+        </div>
+        ${warmupPlan ? renderWarmupPlan(warmupPlan) : ''}
         ${nextSet ? renderSetRow(workout, nextSet, true) : `<div class="list-row"><div><strong>Main work complete</strong><div class="muted">${lastCompletedSet ? escapeHtml(getSetLocationLabel(workout, lastCompletedSet.id)) : 'All prescribed sets are logged.'}</div></div><div class="list-row__meta">${lastCompletedSet ? `${formatNumber(lastCompletedSet.actualReps)} reps @ ${formatWeight(lastCompletedSet.actualWeight || lastCompletedSet.prescribedWeight, state.user.units)}` : 'Ready for assistance'}</div></div>`}
       </article>
 
@@ -1865,30 +2537,62 @@ function renderWorkout() {
         <div class="grid grid--3">
           ${workout.assistanceTargets.map((target) => {
             const guide = ASSISTANCE_GUIDANCE[target.category];
+            const favorite = workout.assistanceExercises?.[target.category] || state.user?.assistanceFavorites?.[target.category] || '';
             return `
               <div class="lift-card assistance-card">
                 <h4>${ASSISTANCE_LABELS[target.category]}</h4>
                 <p class="muted">${guide.summary}</p>
                 <small class="field-note">Try: ${guide.examples.join(' · ')}</small>
+                ${favorite ? `<small class="field-note">Favorite: ${escapeHtml(favorite)}</small>` : ''}
               </div>
             `;
           }).join('')}
         </div>
         <div class="grid grid--3">
           ${workout.assistanceTargets.map((target) => `
-            <label>
-              <span>${ASSISTANCE_LABELS[target.category]} reps (${target.targetMin}-${target.targetMax})</span>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value="${escapeHtml(workout.assistanceLog[target.category])}"
-                data-action="workout-meta"
-                data-workout-id="${workout.id}"
-                data-field="assistance.${target.category}"
-              />
-            </label>
+            <div class="assist-log-card">
+              <label>
+                <span>${ASSISTANCE_LABELS[target.category]} reps (${target.targetMin}-${target.targetMax})</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="${escapeHtml(workout.assistanceLog[target.category])}"
+                  data-action="workout-meta"
+                  data-workout-id="${workout.id}"
+                  data-field="assistance.${target.category}"
+                />
+              </label>
+              <div class="assist-log-buttons">
+                <button type="button" class="button button--secondary" data-action="adjust-assistance-reps" data-workout-id="${workout.id}" data-category="${target.category}" data-delta="25">+25</button>
+                <button type="button" class="button button--secondary" data-action="adjust-assistance-reps" data-workout-id="${workout.id}" data-category="${target.category}" data-delta="50">+50</button>
+                <button type="button" class="button button--secondary" data-action="adjust-assistance-reps" data-workout-id="${workout.id}" data-category="${target.category}" data-delta="75">+75</button>
+                <button type="button" class="button button--secondary" data-action="adjust-assistance-reps" data-workout-id="${workout.id}" data-category="${target.category}" data-delta="100">+100</button>
+              </div>
+            </div>
           `).join('')}
+        </div>
+
+        <div class="grid grid--3">
+          <label>
+            <span>Recovery</span>
+            <select data-action="workout-meta" data-workout-id="${workout.id}" data-field="recovery">
+              <option value="fresh" ${workout.recovery === 'fresh' ? 'selected' : ''}>Fresh</option>
+              <option value="okay" ${workout.recovery === 'okay' ? 'selected' : ''}>Okay</option>
+              <option value="beat_up" ${workout.recovery === 'beat_up' ? 'selected' : ''}>Beat up</option>
+            </select>
+          </label>
+          <label>
+            <span>Conditioning done</span>
+            <select data-action="workout-meta" data-workout-id="${workout.id}" data-field="conditioning.completed">
+              <option value="no" ${workout.conditioning?.completed === 'no' ? 'selected' : ''}>No</option>
+              <option value="yes" ${workout.conditioning?.completed === 'yes' ? 'selected' : ''}>Yes</option>
+            </select>
+          </label>
+          <label>
+            <span>Conditioning minutes</span>
+            <input type="number" min="0" step="1" value="${escapeHtml(workout.conditioning?.minutes || '')}" data-action="workout-meta" data-workout-id="${workout.id}" data-field="conditioning.minutes" />
+          </label>
         </div>
 
         <div class="grid grid--3">
@@ -1917,10 +2621,16 @@ function renderWorkout() {
           </label>
         </div>
 
-        <label class="field field--full">
-          <span>Notes</span>
-          <textarea rows="4" data-action="workout-meta" data-workout-id="${workout.id}" data-field="notes">${escapeHtml(workout.notes)}</textarea>
-        </label>
+        <div class="grid grid--2">
+          <label class="field field--full">
+            <span>Conditioning note</span>
+            <input type="text" value="${escapeHtml(workout.conditioning?.note || '')}" data-action="workout-meta" data-workout-id="${workout.id}" data-field="conditioning.note" placeholder="Bike, sled, jumps, easy run, etc." />
+          </label>
+          <label class="field field--full">
+            <span>Notes</span>
+            <textarea rows="4" data-action="workout-meta" data-workout-id="${workout.id}" data-field="notes">${escapeHtml(workout.notes)}</textarea>
+          </label>
+        </div>
       </article>
     </section>
   `;
@@ -1941,8 +2651,8 @@ function renderHistoryCycle(cycle) {
         ${completed.map((workout) => {
           const topSet = workout.blocks
             .flatMap((block) => block.sections)
-            .flatMap((section) => section.sets)
-            .find((set) => set.repStyle === 'plus');
+            .map((section) => getTopSetFromSection(section))
+            .find(Boolean);
           return `
             <div class="list-row">
               <div>
@@ -1989,10 +2699,62 @@ function renderHistory() {
   `;
 }
 
+function getLiftTopSetsAcrossCycles(liftKey) {
+  return [state.activeCycle, ...state.cycleHistory]
+    .filter(Boolean)
+    .flatMap((cycle) => getTopSetResultsForLift(cycle, liftKey));
+}
+
+function getLiftProgressSummary(liftKey) {
+  const currentTM = state.liftProfiles?.[liftKey]?.currentTrainingMax || 0;
+  const previousReview = state.cycleHistory[0]?.review?.find((review) => review.liftKey === liftKey) || null;
+  const topSets = getLiftTopSetsAcrossCycles(liftKey);
+  const bestTopSet = getBestTopSet(topSets);
+  return {
+    currentTM,
+    previousTM: previousReview ? previousReview.nextTrainingMax : null,
+    bestTopSet,
+    bestEstimatedOneRepMax: bestTopSet ? estimateE1RM(bestTopSet.actualWeight, bestTopSet.actualReps) : 0,
+  };
+}
+
+function getProgramGuardrails(reviews) {
+  const notes = [];
+  const completedWorkouts = getCompletedWorkouts(state.activeCycle);
+  const assistanceMisses = completedWorkouts.filter((workout) =>
+    Object.values(workout.assistanceLog || {}).every((value) => Number(value || 0) === 0),
+  ).length;
+  const conditioningMisses = completedWorkouts.filter((workout) => workout.conditioning?.completed !== 'yes').length;
+
+  if (reviews.some((review) => review.action === 'reset')) {
+    notes.push('At least one lift is asking for a reset. Keep the next cycle conservative and clean.');
+  }
+
+  if (state.user?.recoveryWeekType === 'none' && state.cycleHistory.length >= 2) {
+    notes.push('You have run multiple cycles without a recovery week. Consider turning on a deload or TM test week in Settings.');
+  }
+
+  if ((state.user?.templateSlug === 'bbb' || state.user?.templateSlug === 'five_pro_bbb') && conditioningMisses >= 2) {
+    notes.push('BBB usually feels better with regular easy conditioning. You have skipped conditioning on multiple completed workouts.');
+  }
+
+  if (assistanceMisses >= 2) {
+    notes.push('Assistance work has been skipped on several completed workouts. Save favorite movements in Settings to make logging easier.');
+  }
+
+  if (!notes.length) {
+    notes.push('No major red flags right now. Keep progressing with smooth reps and honest training maxes.');
+  }
+
+  return notes;
+}
+
 function renderProgram() {
   const cycle = state.activeCycle;
   const reviews = getCycleReviews();
   const complete = isCycleComplete(cycle);
+  const reviewSummary = getCycleReviewSummary(cycle, reviews);
+  const guardrails = getProgramGuardrails(reviews);
 
   return `
     <section class="panel-stack">
@@ -2006,13 +2768,47 @@ function renderProgram() {
           <small class="field-note">${complete ? 'Cycle ready for review' : 'Cycle in progress'}</small>
         </div>
         <div class="grid grid--4">
-          ${LIFT_ORDER.map((liftKey) => `
-            <div class="metric-card">
-              <span class="metric-card__label">${LIFT_LABELS[liftKey]}</span>
-              <strong>${formatWeight(state.liftProfiles[liftKey].currentTrainingMax, state.user.units)}</strong>
-              <small>Source: ${state.liftProfiles[liftKey].sourceType.replaceAll('_', ' ')}</small>
-            </div>
-          `).join('')}
+          ${LIFT_ORDER.map((liftKey) => {
+            const progress = getLiftProgressSummary(liftKey);
+            return `
+              <div class="metric-card">
+                <span class="metric-card__label">${LIFT_LABELS[liftKey]}</span>
+                <strong>${formatWeight(progress.currentTM, state.user.units)}</strong>
+                <small>${progress.bestEstimatedOneRepMax ? `Best e1RM ${formatWeight(roundWeight(progress.bestEstimatedOneRepMax, state.user.roundingIncrement), state.user.units)}` : `Source: ${state.liftProfiles[liftKey].sourceType.replaceAll('_', ' ')}`}</small>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h3>Progress snapshot</h3>
+            <p class="muted">See how each lift is trending before you make the next cycle decision.</p>
+          </div>
+        </div>
+        <div class="grid grid--2">
+          ${LIFT_ORDER.map((liftKey) => {
+            const progress = getLiftProgressSummary(liftKey);
+            return `
+              <div class="lift-card">
+                <h4>${LIFT_LABELS[liftKey]}</h4>
+                <div class="grid grid--2 compact-grid">
+                  <div class="metric-card metric-card--compact">
+                    <span class="metric-card__label">Current TM</span>
+                    <strong>${formatWeight(progress.currentTM, state.user.units)}</strong>
+                    <small>${progress.previousTM ? `Last saved TM ${formatWeight(progress.previousTM, state.user.units)}` : 'No completed cycle yet'}</small>
+                  </div>
+                  <div class="metric-card metric-card--compact">
+                    <span class="metric-card__label">Best top set</span>
+                    <strong>${progress.bestTopSet ? `${formatNumber(progress.bestTopSet.actualReps)} reps` : '—'}</strong>
+                    <small>${progress.bestTopSet ? `${formatWeight(progress.bestTopSet.actualWeight, state.user.units)} · ${escapeHtml(progress.bestTopSet.workoutTitle)}` : 'No recorded top set yet'}</small>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
         </div>
       </article>
 
@@ -2036,17 +2832,81 @@ function renderProgram() {
       </article>
 
       <article class="card">
+        <div class="section-heading">
+          <div>
+            <h3>Coach notes</h3>
+            <p class="muted">Simple guardrails based on your recent cycle, recovery settings, and logged habits.</p>
+          </div>
+        </div>
+        <div class="stack-list compact-list">
+          ${guardrails.map((note) => `
+            <div class="list-row review-callout">
+              <div>
+                <strong>Keep in mind</strong>
+                <div class="muted">${escapeHtml(note)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </article>
+
+      <article class="card">
         <div class="section-heading section-heading--space-between">
           <div>
             <h3>Next cycle recommendations</h3>
             <p class="muted">Review each lift, then choose whether to increase, hold, or reset before starting the next cycle.</p>
           </div>
-          ${complete ? `<button class="button" data-action="apply-next-cycle">Apply review and generate next cycle</button>` : ''}
+          ${complete ? `<button class="button" data-action="apply-next-cycle">Start cycle ${reviewSummary.nextCycleNumber}</button>` : ''}
         </div>
+
+        <div class="grid grid--4">
+          <div class="metric-card">
+            <span class="metric-card__label">Cycle status</span>
+            <strong>${reviewSummary.completedWorkoutCount}/${reviewSummary.totalWorkoutCount}</strong>
+            <small>${reviewSummary.headline}</small>
+          </div>
+          <div class="metric-card">
+            <span class="metric-card__label">Recommendations</span>
+            <strong>${reviewSummary.increaseCount} / ${reviewSummary.holdCount} / ${reviewSummary.resetCount}</strong>
+            <small>Increase / Hold / Reset</small>
+          </div>
+          <div class="metric-card">
+            <span class="metric-card__label">Flags this cycle</span>
+            <strong>${reviewSummary.attentionCount}</strong>
+            <small>${reviewSummary.painCount} pain · ${reviewSummary.hardCount} hard or grindy</small>
+          </div>
+          <div class="metric-card">
+            <span class="metric-card__label">Best top set</span>
+            <strong>${reviewSummary.bestTopSet ? formatWeight(reviewSummary.bestTopSet.actualWeight, state.user.units) : '—'}</strong>
+            <small>${reviewSummary.bestTopSet ? `${formatNumber(reviewSummary.bestTopSet.actualReps)} reps in ${escapeHtml(reviewSummary.bestTopSet.workoutTitle)}` : 'Complete top sets to see a highlight.'}</small>
+          </div>
+        </div>
+
+        ${complete ? `
+          <div class="list-row review-callout">
+            <div>
+              <strong>Ready for cycle ${reviewSummary.nextCycleNumber}</strong>
+              <div class="muted">Your selections below will be saved into history, then the next cycle will be built with the updated training maxes.</div>
+            </div>
+            <div class="list-row__meta">
+              <span class="badge ${reviewSummary.resetCount > 0 ? 'badge--danger' : reviewSummary.holdCount > 0 ? 'badge--muted' : 'badge--success'}">${reviewSummary.resetCount > 0 ? 'Needs adjustment' : reviewSummary.holdCount > 0 ? 'Mixed' : 'Ready to progress'}</span>
+            </div>
+          </div>
+        ` : `
+          <div class="list-row review-callout">
+            <div>
+              <strong>Finish the current cycle first</strong>
+              <div class="muted">Once every workout is complete, you can review each lift and start the next cycle in one tap.</div>
+            </div>
+            <div class="list-row__meta"><span class="badge badge--muted">Locked</span></div>
+          </div>
+        `}
+
         <div class="grid grid--2">
           ${reviews.map((review) => {
             const selectedAction = getReviewSelection(review.liftKey, review.action);
             const projectedTM = getProjectedTM(review.liftKey, selectedAction);
+            const bestTopSet = getBestTopSet(review.topSets);
             return `
               <div class="lift-card">
                 <div class="section-heading section-heading--space-between">
@@ -2054,7 +2914,7 @@ function renderProgram() {
                     <h4>${LIFT_LABELS[review.liftKey]}</h4>
                     <p class="muted">${review.reason}</p>
                   </div>
-                  <small class="field-note">Suggested: ${review.action}</small>
+                  <span class="badge ${getActionBadgeClass(review.action)}">Suggested: ${getActionLabel(review.action)}</span>
                 </div>
                 <div class="form-grid">
                   <label>
@@ -2066,11 +2926,20 @@ function renderProgram() {
                     </select>
                   </label>
                   <label>
-                    <span>Projected next TM</span>
+                    <span>Projected next training max</span>
                     <input type="text" value="${formatWeight(projectedTM, state.user.units)}" disabled />
                   </label>
                 </div>
                 <div class="stack-list compact-list">
+                  ${bestTopSet ? `
+                    <div class="list-row">
+                      <div>
+                        <strong>Best top set</strong>
+                        <div class="muted">${escapeHtml(bestTopSet.workoutTitle)} · ${getWeekWave(bestTopSet.weekType).shortLabel}</div>
+                      </div>
+                      <div class="list-row__meta">${formatNumber(bestTopSet.actualReps)} reps @ ${formatWeight(bestTopSet.actualWeight, state.user.units)}</div>
+                    </div>
+                  ` : ''}
                   ${review.topSets.map((set) => `
                     <div class="list-row">
                       <div>
@@ -2118,6 +2987,59 @@ function renderSettings() {
           </label>
         </div>
 
+        <label class="checkbox-field">
+          <input type="checkbox" data-settings-field="showWarmups" ${state.user.showWarmups !== false ? 'checked' : ''} />
+          <span>Show recommended warm-up sets before each main lift</span>
+        </label>
+
+        <div class="grid grid--3">
+          <label>
+            <span>Recovery week</span>
+            <select data-settings-field="recoveryWeekType">
+              <option value="none" ${state.user.recoveryWeekType === 'none' ? 'selected' : ''}>No recovery week</option>
+              <option value="deload" ${state.user.recoveryWeekType === 'deload' ? 'selected' : ''}>Deload week</option>
+              <option value="tm_test" ${state.user.recoveryWeekType === 'tm_test' ? 'selected' : ''}>TM test week</option>
+            </select>
+          </label>
+          <label>
+            <span>Run it every</span>
+            <select data-settings-field="recoveryWeekEveryCycles">
+              <option value="2" ${Number(state.user.recoveryWeekEveryCycles) === 2 ? 'selected' : ''}>2 cycles</option>
+              <option value="3" ${Number(state.user.recoveryWeekEveryCycles) === 3 ? 'selected' : ''}>3 cycles</option>
+              <option value="4" ${Number(state.user.recoveryWeekEveryCycles) === 4 ? 'selected' : ''}>4 cycles</option>
+            </select>
+          </label>
+          <div class="metric-card metric-card--compact">
+            <span class="metric-card__label">Current template</span>
+            <strong>${TEMPLATE_PRESETS[state.user.templateSlug].name}</strong>
+            <small>Choose 5's Pro, Joker, Leader, or Anchor variants during setup.</small>
+          </div>
+        </div>
+
+        <div class="grid grid--3">
+          <label>
+            <span>Main lift rest timer</span>
+            <input type="number" min="30" step="15" value="${escapeHtml(state.user.restSecondsMain)}" data-settings-field="restSecondsMain" />
+          </label>
+          <label>
+            <span>Supplemental / joker rest timer</span>
+            <input type="number" min="30" step="15" value="${escapeHtml(state.user.restSecondsSupplemental)}" data-settings-field="restSecondsSupplemental" />
+          </label>
+          <label>
+            <span>Assistance rest timer</span>
+            <input type="number" min="15" step="15" value="${escapeHtml(state.user.restSecondsAssistance)}" data-settings-field="restSecondsAssistance" />
+          </label>
+        </div>
+
+        <div class="grid grid--3">
+          ${ASSISTANCE_CATEGORIES.map((category) => `
+            <label>
+              <span>${ASSISTANCE_LABELS[category]} favorite</span>
+              <input type="text" value="${escapeHtml(state.user.assistanceFavorites?.[category] || '')}" data-settings-assistance="${category}" placeholder="Example: ${escapeHtml(ASSISTANCE_GUIDANCE[category].examples[0])}" />
+            </label>
+          `).join('')}
+        </div>
+
         <div class="grid grid--2">
           ${LIFT_ORDER.map((liftKey) => `
             <label>
@@ -2142,13 +3064,35 @@ function renderSettings() {
       <article class="card">
         <div class="section-heading">
           <div>
-            <h2>Data</h2>
-            <p class="muted">Your data stays on this device unless you export it.</p>
+            <h2>Data & backup</h2>
+            <p class="muted">Your training log stays on this device unless you export a backup file.</p>
+            <small class="field-note">Export a backup before switching phones, clearing browser data, or trying risky changes.</small>
+          </div>
+        </div>
+        <div class="grid grid--2">
+          <div class="metric-card">
+            <span class="metric-card__label">Last export</span>
+            <strong>${formatDateTime(state.backups?.lastExportedAt)}</strong>
+            <small>JSON backup you can keep anywhere you trust.</small>
+          </div>
+          <div class="metric-card">
+            <span class="metric-card__label">Last import</span>
+            <strong>${formatDateTime(state.backups?.lastImportedAt)}</strong>
+            <small>Imports replace the current data on this device.</small>
+          </div>
+        </div>
+        <div class="stack-list compact-list">
+          <div class="list-row review-callout">
+            <div>
+              <strong>Recommended backup rhythm</strong>
+              <div class="muted">Export after setting up a new cycle, after finishing a cycle, or before changing training maxes in bulk.</div>
+            </div>
+            <div class="list-row__meta"><span class="badge badge--muted">Local-first</span></div>
           </div>
         </div>
         <div class="stack-row">
-          <button class="button button--secondary" data-action="export-data">Export JSON</button>
-          <button class="button button--secondary" data-action="import-data">Import JSON</button>
+          <button class="button" data-action="export-data">Export backup</button>
+          <button class="button button--secondary" data-action="import-data">Import backup</button>
           <button class="button button--danger" data-action="reset-app">Reset app</button>
         </div>
       </article>
@@ -2201,7 +3145,12 @@ function syncWorkoutSetPlatePreview(workoutId, setId, totalWeight) {
 
 function render() {
   app.innerHTML = state.user ? renderShell() : renderOnboarding();
+  syncRestTimerDisplay();
 }
+
+window.setInterval(() => {
+  syncRestTimerDisplay();
+}, 1000);
 
 document.addEventListener('click', (event) => {
   const target = event.target.closest('[data-action], [data-tab]');
@@ -2233,7 +3182,23 @@ document.addEventListener('click', (event) => {
   } else if (action === 'save-workout') {
     saveWorkout(target.dataset.workoutId);
   } else if (action === 'toggle-set-complete') {
+    const workout = getWorkoutById(state.activeCycle, target.dataset.workoutId);
+    const context = workout ? getSetContext(workout, target.dataset.setId) : null;
+    const shouldStartRest = Boolean(context && !context.set.completed);
+    const restLabel = context ? `${getSetLocationLabel(workout, target.dataset.setId)} rest` : 'Rest timer';
+    const restPhase = context?.set?.phase || 'main';
     toggleWorkoutSetCompletion(target.dataset.workoutId, target.dataset.setId);
+    if (shouldStartRest) {
+      startRestTimer(getRestSecondsForPhase(restPhase), restLabel, restPhase);
+    }
+  } else if (action === 'adjust-assistance-reps') {
+    adjustWorkoutAssistanceLog(target.dataset.workoutId, target.dataset.category, Number(target.dataset.delta || 0));
+  } else if (action === 'rest-timer-adjust') {
+    adjustRestTimer(Number(target.dataset.seconds || 0));
+  } else if (action === 'rest-timer-restart') {
+    restartRestTimer();
+  } else if (action === 'rest-timer-clear') {
+    clearRestTimer();
   } else if (action === 'adjust-set-value') {
     adjustWorkoutSetValue(
       target.dataset.workoutId,
@@ -2267,7 +3232,11 @@ document.addEventListener('change', (event) => {
   const target = event.target;
 
   if (target.dataset.onboardingField) {
-    const value = target.type === 'number' ? Number(target.value) : target.value;
+    const value = target.type === 'checkbox'
+      ? target.checked
+      : target.type === 'number'
+        ? Number(target.value)
+        : target.value;
     updateOnboardingField(target.dataset.onboardingField, value);
     return;
   }
